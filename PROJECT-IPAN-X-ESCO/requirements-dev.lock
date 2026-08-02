@@ -1,0 +1,24 @@
+-r requirements.lock
+altgraph==0.17.5
+colorama==0.4.6
+coverage==7.15.2
+greenlet==3.5.4
+iniconfig==2.3.0
+mypy==1.18.2
+mypy_extensions==1.1.0
+packaging==26.2
+pathspec==1.1.1
+pefile==2023.2.7
+playwright==1.61.0
+pluggy==1.6.0
+Pygments==2.20.0
+pyinstaller==6.16.0
+pyinstaller-hooks-contrib==2026.6
+pyee==13.0.1
+pytest==8.4.2
+pytest-cov==7.0.0
+pytest-mock==3.15.1
+pywin32-ctypes==0.2.3
+ruff==0.14.2
+setuptools==83.0.0
+wheel==0.45.1

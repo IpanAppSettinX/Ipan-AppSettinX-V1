@@ -1,0 +1,40 @@
+# Secrets / API keys
+opencode.json
+.env
+.env.*
+*.pem
+*.key
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# Build artifacts
+build/
+dist/
+*.spec.bak
+artifacts/
+playwright-report/
+test-results/
+
+# Logs & DBs
+*.log
+*.sqlite3
+*.db
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store

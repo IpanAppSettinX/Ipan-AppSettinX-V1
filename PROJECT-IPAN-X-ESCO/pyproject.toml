@@ -1,0 +1,72 @@
+[build-system]
+requires = ["setuptools==83.0.0", "wheel==0.45.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ipan-optimizer"
+version = "0.1.0"
+description = "Evidence-based reversible Windows optimizer"
+readme = "README.md"
+requires-python = "==3.12.*"
+license = { text = "Proprietary" }
+authors = [{ name = "IPAN Optimizer" }]
+dependencies = [
+  "psutil==7.2.2",
+  "pydantic==2.13.4",
+  "pywebview==6.2.1",
+  "pywin32==311; sys_platform == 'win32'",
+]
+
+[project.scripts]
+ipan-optimizer = "ipan_optimizer.main:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ipan_optimizer = [
+  "frontend/**/*.html",
+  "frontend/**/*.css",
+  "frontend/**/*.js",
+  "frontend/**/*.json",
+  "frontend/**/*.jpg",
+  "frontend/**/*.png",
+  "frontend/**/*.svg",
+  "data/**/*.json",
+]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers -m 'not vm and not packaging'"
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+  "ui: browser or pywebview user-interface tests",
+  "vm: destructive tests permitted only inside disposable Windows VMs",
+  "packaging: packaged application and installer tests",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "SIM", "RUF"]
+ignore = ["S101"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S105", "S106", "S603"]
+"src/ipan_optimizer/app/service.py" = ["S607"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["ipan_optimizer"]
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = ["psutil"]
+ignore_missing_imports = true

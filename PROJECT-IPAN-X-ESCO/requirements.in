@@ -1,0 +1,5 @@
+psutil==7.2.2
+pydantic==2.13.4
+pywebview==6.2.1
+pywin32==311; sys_platform == "win32"
+

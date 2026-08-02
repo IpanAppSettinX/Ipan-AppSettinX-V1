@@ -1,0 +1,724 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self' file:; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'"
+    >
+    <title>Ipan AppSettinX V1</title>
+    <meta name="description" content="Ipan AppSettinX V1 membantu memeriksa kemampuan PC, meninjau rekomendasi performa, dan memulihkan perubahan secara terkontrol.">
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="css/tokens.css">
+    <link rel="stylesheet" href="css/base.css">
+    <link rel="stylesheet" href="css/layout.css">
+    <link rel="stylesheet" href="css/components.css">
+  </head>
+  <body>
+    <div id="startup-screen" class="startup-screen" role="status" aria-live="polite" aria-label="Menyiapkan IpanSettinX V1">
+         <div class="startup-identity">
+        <div class="startup-emblem" aria-hidden="true">
+          <svg class="startup-ring startup-ring-1" viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="56"/></svg>
+          <svg class="startup-ring startup-ring-2" viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="44"/></svg>
+          <svg class="startup-ring startup-ring-3" viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="32"/></svg>
+          <div class="startup-logo-wrap">
+            <img class="startup-logo" src="assets/ipan-store-logo.png" alt="Ipan Store" width="72" height="72">
+          </div>
+        </div>
+        <span class="eyebrow">INISIALISASI SISTEM</span>
+        <strong class="startup-title">IpanSettinX <b>V1</b></strong>
+        <small id="startup-message">Menyiapkan antarmuka lokal</small>
+        <div class="startup-track" role="progressbar" aria-label="Progres startup" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <span id="startup-bar"></span>
+        </div>
+        <ul class="subtask-nodes" aria-label="Tahap diagnostik sistem">
+          <li class="subtask-node subtask-cpu" data-subtask="cpu" data-threshold="30" data-state="wait">
+            <span class="subtask-dot"></span>
+            <span class="subtask-label">CPU TWEAK</span>
+            <span class="subtask-state">WAIT</span>
+          </li>
+          <li class="subtask-node subtask-ram" data-subtask="ram" data-threshold="60" data-state="wait">
+            <span class="subtask-dot"></span>
+            <span class="subtask-label">RAM BOOST</span>
+            <span class="subtask-state">WAIT</span>
+          </li>
+          <li class="subtask-node subtask-gpu" data-subtask="gpu" data-threshold="90" data-state="wait">
+            <span class="subtask-dot"></span>
+            <span class="subtask-label">GPU TUNE</span>
+            <span class="subtask-state">WAIT</span>
+          </li>
+        </ul>
+        <span id="startup-percent" class="startup-percent">0%</span>
+      </div>
+    </div>
+
+    <section id="login-screen" class="login-screen" aria-labelledby="login-title" hidden>
+      <header class="login-windowbar pywebview-drag-region">
+        <span>IPAN APPSETTINX // MEMBER LOGIN</span>
+        <div class="login-window-controls">
+          <button type="button" data-control-id="auth.window_minimize" aria-label="Minimize">—</button>
+          <button type="button" class="window-maximize" data-control-id="auth.window_maximize" aria-label="Maximize">▢</button>
+          <button type="button" data-control-id="auth.window_close" aria-label="Close">×</button>
+        </div>
+      </header>
+      <div class="login-atmosphere" aria-hidden="true">
+        <span class="data-line data-line-a"></span>
+        <span class="data-line data-line-b"></span>
+        <span class="data-line data-line-c"></span>
+        <span class="data-node data-node-a"></span>
+        <span class="data-node data-node-b"></span>
+        <span class="data-node data-node-c"></span>
+      </div>
+
+      <div class="login-visual" aria-hidden="true">
+        <div class="visual-field">
+          <span class="visual-glow"></span>
+          <span class="visual-scan"></span>
+          <span class="visual-drift visual-drift-a"></span>
+          <span class="visual-drift visual-drift-b"></span>
+          <span class="visual-drift visual-drift-c"></span>
+          <span class="visual-packet visual-packet-a"></span>
+          <span class="visual-packet visual-packet-b"></span>
+          <span class="visual-packet visual-packet-c"></span>
+          <span class="visual-corner visual-corner-tl"></span>
+          <span class="visual-corner visual-corner-tr"></span>
+          <span class="visual-corner visual-corner-bl"></span>
+          <span class="visual-corner visual-corner-br"></span>
+        </div>
+        <div class="hw-terminal">
+          <div class="hw-terminal-head">
+            <img src="assets/ipan-store-logo.png" alt="" width="110" height="44">
+            <span class="hw-term-title" data-title="IPAN APP SETTINX // SYSTEM DIAGNOSTIC"></span>
+            <span class="hw-term-live"><i></i>LIVE</span>
+          </div>
+          <div class="hw-terminal-body" id="hw-log"></div>
+          <div class="hw-terminal-foot">
+            <span>© 2026 Ipan AppSettinX — All Rights Reserved</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="login-panel">
+        <div class="login-brand">
+          <span class="login-wordmark"><img src="assets/ipan-store-logo.png" alt="Ipan Store"></span>
+          <span>Ipan <strong>AppSettinX</strong></span><b>V1</b>
+        </div>
+        <div class="login-content">
+          <div class="login-heading">
+            <span class="login-index">MEMBER LOGIN <b>01</b></span>
+            <h1 id="login-title">Masuk ke Ipan AppSettinX.</h1>
+            <p>Daftar Akun untuk merasakan Benefit Dari AppSensiX, Optimize Boost FPS dan Optimize emulator dari IpanAppSettinX.</p>
+          </div>
+          <form id="login-form" class="login-form" novalidate>
+            <label for="login-username">Username
+              <input id="login-username" name="username" type="text" autocomplete="username" maxlength="254" placeholder="Masukkan username" required>
+            </label>
+            <label for="login-password">Password
+              <span class="password-field">
+                <input id="login-password" name="password" type="password" autocomplete="current-password" maxlength="128" placeholder="Masukkan password" required>
+                <button type="button" class="password-toggle" data-control-id="auth.password_toggle" aria-label="Tampilkan password" aria-pressed="false">SHOW</button>
+              </span>
+            </label>
+            <label for="login-license">License Key
+              <input id="login-license" name="license_key" type="text" autocomplete="off" spellcheck="false" maxlength="128" placeholder="Masukkan license key" required>
+            </label>
+            <div class="remember-toggle" data-control-id="auth.remember">
+              <input id="login-remember" name="remember" type="checkbox" hidden>
+              <span class="remember-track" aria-hidden="true">
+                <span class="remember-thumb"></span>
+              </span>
+              <span class="remember-label">Ingat saya dalam 30 hari</span>
+            </div>
+            <div class="license-state"><span>DEVICE LICENSE</span><small>Satu akun untuk satu perangkat aktif</small></div>
+            <p id="login-status" class="login-status" role="status" aria-live="polite"></p>
+            <button type="submit" class="primary login-submit" data-control-id="auth.login">
+              <span>Login</span><span aria-hidden="true">→</span>
+            </button>
+          </form>
+          <div class="login-actions" aria-label="Bantuan akun">
+            <button type="button" class="login-link" data-control-id="auth.register" data-support-url="https://wa.me/6281910123632?text=Halo%20Ipan%20Store%2C%20saya%20ingin%20membeli%20dan%20mendaftarkan%20akun%20Ipan%20AppSettinX.">
+              <span class="action-number">01</span><span class="login-link-copy"><b>Daftar Akun</b><small>Bayar sekali, pakai selamanya</small></span><span class="login-link-cta" aria-hidden="true">WHATSAPP ↗</span>
+            </button>
+            <button type="button" class="login-link" data-control-id="auth.reset_hwid" data-support-url="https://wa.me/6281910123632?text=Halo%20Ipan%20Store%2C%20saya%20ingin%20mengajukan%20Reset%20HWID%20akun%20Ipan%20AppSettinX.">
+              <span class="action-number">02</span><span class="login-link-copy"><b>Reset HWID</b><small>Akun bermasalah, atau ganti windows dan akun tidak bisa dipakai? langsung Reset HWID aja! Bayar sekali, pakai selamanya</small></span><span class="login-link-cta" aria-hidden="true">WHATSAPP ↗</span>
+            </button>
+          </div>
+          <p class="login-license-note">Akun dibuat oleh admin setelah pembelian terverifikasi.</p>
+        </div>
+      </div>
+
+      <div class="login-optimizer" role="status" aria-live="polite" aria-label="Memverifikasi akun" hidden>
+        <div class="auth-trace" aria-hidden="true">
+          <div class="auth-trace-head">
+            <span class="auth-trace-dot"></span>
+            <span class="auth-trace-title">SECURE AUTH TRACE</span>
+            <span class="auth-trace-id">IPX·01</span>
+          </div>
+          <ol class="auth-trace-list">
+            <li class="auth-trace-row" data-trace="device"><span class="trace-tag">DEVICE</span><span class="trace-fill"></span><span class="trace-status">SCAN</span></li>
+            <li class="auth-trace-row" data-trace="hwid"><span class="trace-tag">HWID</span><span class="trace-fill"></span><span class="trace-status">BIND</span></li>
+            <li class="auth-trace-row" data-trace="license"><span class="trace-tag">LICENSE</span><span class="trace-fill"></span><span class="trace-status">CHECK</span></li>
+            <li class="auth-trace-row" data-trace="auth"><span class="trace-tag">AUTH</span><span class="trace-fill"></span><span class="trace-status">VERIFY</span></li>
+          </ol>
+          <div class="auth-trace-meter"><span id="login-loading-bar"></span></div>
+        </div>
+        <span class="eyebrow">SECURE HARDWARE HANDSHAKE</span>
+        <h2>Verifying access</h2>
+        <p id="login-loading-message">Membaca identitas perangkat</p>
+        <div class="optimizer-stage"><span id="login-loading-percent">0%</span><small id="login-loading-stage">DEVICE SCAN</small></div>
+      </div>
+    </section>
+
+    <div class="app-shell" aria-hidden="true">
+      <header class="titlebar pywebview-drag-region">
+        <div class="brand-lockup">
+          <span class="brand-mark"><img src="assets/ipan-store-logo.png" alt=""></span>
+          <span class="wordmark">Ipan <strong>AppSettinX</strong></span>
+          <span class="version-tag">V1</span>
+        </div>
+        <div class="titlebar-controls">
+          <button type="button" class="window-control" data-control-id="window.minimize" aria-label="Minimize">—</button>
+          <button type="button" class="window-control window-maximize" data-control-id="window.maximize" aria-label="Maximize">▢</button>
+          <button type="button" class="window-control window-close" data-control-id="window.close" aria-label="Close">✕</button>
+        </div>
+      </header>
+
+      <aside class="sidebar" aria-label="Navigasi utama">
+        <p class="nav-label">COMMAND</p>
+        <nav class="nav-primary">
+          <button type="button" data-control-id="nav.dashboard" data-route="dashboard" aria-current="page"><span>Beranda</span></button>
+          <button type="button" data-control-id="nav.scan" data-route="scan"><span>Smart Scan</span></button>
+          <button type="button" data-control-id="nav.tweaks" data-route="tweaks"><span>Tweak Menu</span></button>
+          <button type="button" data-control-id="nav.advanced" data-route="advanced"><span>Advanced Tweak Menu</span></button>
+          <button type="button" data-control-id="nav.profiles" data-route="profiles"><span>AppSensiX</span></button>
+          <button type="button" data-control-id="nav.emulator" data-route="emulator"><span>Emulator</span></button>
+          <button type="button" data-control-id="nav.restore" data-route="restore"><span>Restore</span></button>
+          <button type="button" data-control-id="nav.fixes" data-route="fixes"><span>Fixes</span></button>
+        </nav>
+        <div class="nav-group">
+          <button type="button" data-control-id="nav.activity" data-route="activity"><span>Activity</span></button>
+        </div>
+        <nav class="nav-footer" aria-label="Navigasi tambahan">
+          <button type="button" data-control-id="nav.settings" data-route="settings"><span>Settings</span></button>
+          <button type="button" data-control-id="nav.evidence" data-route="evidence"><span>About Ipan AppSettinX</span></button>
+        </nav>
+        <div class="sidebar-footnote">© 2026 Ipan AppSettinX — All Rights Reserved</div>
+      </aside>
+
+      <main id="main-content" tabindex="-1">
+        <section class="route" data-view="dashboard">
+          <div class="command-hero">
+            <div class="hero-copy">
+              <span class="eyebrow">IPAN APPSETTINX V1</span>
+              <h1>Setting PC Lo jadi ngebut dan makin smooth main game, FPS nge-boost, dan AppSensiX untuk mempermudah pengalaman bermain Game Free Fire.</h1>
+              <p>Satu command center buat baca spek hardware, deteksi bottleneck, dan terapkan tweak yang emang sesuai sama PC lo. Tanpa setting acak, tanpa trial-and-error. Langsung pakai.</p>
+              <div class="hero-actions">
+                <button type="button" class="primary action-lg" data-control-id="dashboard.scan"><span>Mulai Smart Scan</span><span aria-hidden="true">→</span></button>
+                <button type="button" class="ghost" data-control-id="dashboard.review" data-route="scan">Lihat rekomendasi</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="section-heading">
+            <div><span class="eyebrow">RINGKASAN SISTEM</span><h2>Status terkini</h2></div>
+          </div>
+          <dl class="fact-list metric-grid" id="dashboard-facts">
+            <div><span class="metric-index">01</span><dt>Scan terakhir</dt><dd>Belum dijalankan</dd><small>Snapshot hardware</small></div>
+            <div><span class="metric-index">02</span><dt>Pemulihan</dt><dd>System Restore</dd><small>Bawaan Windows</small></div>
+            <div><span class="metric-index">03</span><dt>Runtime</dt><dd>Belum diukur</dd><small>WebView2 engine</small></div>
+          </dl>
+          <div class="status-strip" role="status">
+             <div><strong>Optimasi Terkontrol</strong><span>Tiap tweak diperiksa, dicatat, diverifikasi, dan bisa dipulihkan kapan aja. Lo pegang kendali penuh.</span></div>
+          </div>
+        </section>
+
+        <section class="route" data-view="scan" hidden>
+          <div class="page-header">
+            <div>
+              <span class="eyebrow">01 / SMART SCAN</span>
+              <h1>Smart Scan & Telemetry</h1>
+              <p>Deteksi spek hardware PC lo secara real-time dan pantau CPU, GPU, serta RAM dalam grafik live — biar lo tau persis kapan PC lo ngibrit atau mulai ngelag.</p>
+            </div>
+            <button type="button" class="primary" data-control-id="scan.run">Jalankan Scan</button>
+          </div>
+          <div id="scan-status" class="inline-message" role="status">Tekan tombol scan untuk mendeteksi hardware PC Anda.</div>
+          <div id="hardware-results" class="hardware-grid"></div>
+          <div id="telemetry-panel" class="telemetry-panel" hidden>
+            <div class="telemetry-header">
+              <div>
+                <h2>Live Telemetry</h2>
+                <p>Data diperbarui setiap 1 detik. Grafik menampilkan 60 sampel terakhir — CPU, GPU, Load, RAM, dan Suhu.</p>
+              </div>
+              <span class="status-badge success">Live</span>
+            </div>
+            <div class="telemetry-grid">
+              <div class="telemetry-card">
+                <div class="telemetry-meta">
+                  <span class="telemetry-label">CPU Speed</span>
+                  <span id="rt-cpu-speed-tm" class="telemetry-value">--</span>
+                </div>
+                <canvas id="chart-cpu-speed" class="telemetry-chart" width="360" height="120" aria-label="Grafik kecepatan CPU"></canvas>
+              </div>
+              <div class="telemetry-card">
+                <div class="telemetry-meta">
+                  <span class="telemetry-label">GPU Clock</span>
+                  <span id="rt-gpu-speed-tm" class="telemetry-value">--</span>
+                </div>
+                <canvas id="chart-gpu-speed" class="telemetry-chart" width="360" height="120" aria-label="Grafik kecepatan GPU"></canvas>
+              </div>
+              <div class="telemetry-card">
+                <div class="telemetry-meta">
+                  <span class="telemetry-label">CPU Load</span>
+                  <span id="rt-cpu-load-tm" class="telemetry-value">--</span>
+                </div>
+                <canvas id="chart-cpu-load" class="telemetry-chart" width="360" height="120" aria-label="Grafik beban CPU"></canvas>
+              </div>
+              <div class="telemetry-card">
+                <div class="telemetry-meta">
+                  <span class="telemetry-label">RAM Usage</span>
+                  <span id="rt-ram-used-tm" class="telemetry-value">--</span>
+                </div>
+                <canvas id="chart-ram-used" class="telemetry-chart" width="360" height="120" aria-label="Grafik penggunaan RAM"></canvas>
+              </div>
+              <div class="telemetry-card">
+                <div class="telemetry-meta">
+                  <span class="telemetry-label">CPU Temp</span>
+                  <span id="rt-cpu-temp-tm" class="telemetry-value">--</span>
+                </div>
+                <canvas id="chart-cpu-temp" class="telemetry-chart" width="360" height="120" aria-label="Grafik suhu CPU"></canvas>
+              </div>
+              <div class="telemetry-card">
+                <div class="telemetry-meta">
+                  <span class="telemetry-label">SSD Temp</span>
+                  <span id="rt-ssd-temp-tm" class="telemetry-value">--</span>
+                </div>
+                <canvas id="chart-ssd-temp" class="telemetry-chart" width="360" height="120" aria-label="Grafik suhu SSD"></canvas>
+              </div>
+              <div class="telemetry-card">
+                <div class="telemetry-meta">
+                  <span class="telemetry-label">VGA Temp</span>
+                  <span id="rt-gpu-temp-tm" class="telemetry-value">--</span>
+                </div>
+                <canvas id="chart-gpu-temp" class="telemetry-chart" width="360" height="120" aria-label="Grafik suhu VGA"></canvas>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="route" data-view="tweaks" hidden>
+          <div class="page-header">
+            <div>
+              <span class="eyebrow">02 / TWEAK MENU</span>
+              <h1>Tweak Menu</h1>
+              <p>Pilih optimasi Windows dan gaming yang telah dipisahkan berdasarkan fungsi agar performa terasa lebih responsif tanpa menerapkan paket acak ke setiap PC.</p>
+            </div>
+            <span class="status-badge success">Audited</span>
+          </div>
+          <div class="risk-legend" aria-label="Legenda risiko">
+            <span class="risk risk-safe">SAFE</span>
+            <span class="risk risk-caution">CAUTION</span>
+            <span class="risk risk-critical">CRITICAL</span>
+          </div>
+          <div class="toolbar control-panel">
+            <label>Cari tweak
+              <input type="search" data-control-id="tweaks.search" placeholder="Regedit, Clean, Booster...">
+            </label>
+            <label>Status
+              <select data-control-id="tweaks.filter">
+                <option value="">Semua risiko</option>
+                <option value="safe">Safe</option>
+                <option value="caution">Caution</option>
+                <option value="critical">Critical</option>
+              </select>
+            </label>
+          </div>
+          <div id="tweak-list" class="tweak-grid"></div>
+          <p id="tweak-status" class="inline-message" role="status">Memuat Tweak Menu.</p>
+        </section>
+
+        <section class="route" data-view="advanced" hidden>
+          <div class="page-header">
+            <div>
+              <span class="eyebrow">03 / ADVANCED TWEAK MENU</span>
+              <h1>Advanced Tweak Menu</h1>
+              <p>Jelajahi optimasi tingkat lanjut untuk CPU, GPU, memory, Windows, dan gaming dengan pemeriksaan keamanan sebelum perubahan diteruskan.</p>
+            </div>
+             <span class="status-badge">Tinjauan keamanan</span>
+          </div>
+          <div class="risk-legend" aria-label="Legenda risiko">
+            <span class="risk risk-safe">SAFE</span>
+            <span class="risk risk-caution">CAUTION</span>
+            <span class="risk risk-critical">CRITICAL</span>
+          </div>
+          <div class="toolbar control-panel">
+            <label>Cari tweak
+              <input type="search" data-control-id="advanced.search" placeholder="CPU, GPU, Defender, Firewall...">
+            </label>
+            <label>Kategori
+              <select data-control-id="advanced.filter">
+                <option value="">Semua</option>
+                <option value="Optimization">Optimization</option>
+                <option value="Performance">Performance</option>
+                <option value="Security">Security</option>
+                <option value="System">System</option>
+                <option value="SensiX">SensiX</option>
+              </select>
+            </label>
+          </div>
+          <div id="advanced-list" class="tweak-grid"></div>
+          <p id="advanced-status" class="inline-message" role="status">Memuat katalog advanced tweak.</p>
+        </section>
+
+        <section class="route" data-view="profiles" hidden>
+          <div class="page-header">
+            <div>
+              <span class="eyebrow">04 / PRECISION TECHNOLOGY SUITE</span>
+              <h1>AppSensiX</h1>
+              <p>Tinggalkan kontrol standar. Aktifkan teknologi eksklusif AppSensiX untuk aim yang lebih tajam, drag lebih eksplosif, dan performa emulator yang siap mendominasi setiap match.</p>
+            </div>
+            <span class="status-badge">AppSensiX</span>
+          </div>
+          <div class="tweak-grid">
+            <article class="tweak-card rating-caution">
+              <div class="tweak-card-head">
+                <div>
+                  <span class="eyebrow">HEADSHOT ALIGNMENT ENGINE</span>
+                  <h2>OneTap Vector X</h2>
+                </div>
+              </div>
+              <p>Pertajam arah gerakan untuk tapping yang lebih terkontrol, perpindahan crosshair yang lebih solid, dan placement yang terasa makin on point.</p>
+              <button type="button" class="primary" data-control-id="gaming.aim_smooth">Apply Tweak</button>
+            </article>
+
+            <article class="tweak-card rating-caution">
+              <div class="tweak-card-head">
+                <div>
+                  <span class="eyebrow">SMART AIM RESPONSE SYSTEM</span>
+                  <h2>Neural AimSync X</h2>
+                </div>
+              </div>
+              <p>Sinkronkan respons pointer dengan ritme permainan lo untuk menciptakan kontrol yang lebih halus, stabil, dan mematikan di setiap duel.</p>
+              <button type="button" class="primary" data-control-id="gaming.aim_stabilizer">Apply Tweak</button>
+            </article>
+
+            <article class="tweak-card rating-caution">
+              <div class="tweak-card-head">
+                <div>
+                  <span class="eyebrow">HIGH-SPEED DRAG RESPONSE</span>
+                  <h2>DragShot Velocity X</h2>
+                </div>
+              </div>
+              <p>Lepaskan drag lebih cepat dengan tarikan ringan dan respons eksplosif yang dibuat untuk eksekusi drag shot agresif.</p>
+              <button type="button" class="primary" data-control-id="gaming.easy_drag">Apply Tweak</button>
+            </article>
+
+            <article class="tweak-card rating-caution">
+              <div class="tweak-card-head">
+                <div>
+                  <span class="eyebrow">MAXIMUM PERFORMANCE PROTOCOL</span>
+                  <h2>Emulator Overdrive X</h2>
+                </div>
+              </div>
+                <p>Dorong emulator ke mode performa tinggi untuk gameplay yang lebih ringan, frame lebih stabil, dan respons yang selalu siap tempur.</p>
+                <button type="button" class="primary" data-control-id="gaming.boost_fps_menu">Apply Tweak</button>
+            </article>
+          </div>
+        </section>
+
+        <section class="route" data-view="emulator" hidden>
+          <div class="page-header">
+            <div><span class="eyebrow">05 / EMULATOR</span><h1>Emulator Optimizer</h1><p>Deteksi BlueStacks atau MSI App Player dan pilih preset Free Fire yang sesuai sama spek PC lo.</p></div>
+            <button type="button" class="primary" data-control-id="emulator.discover">Deteksi Emulator</button>
+          </div>
+
+          <div class="section-heading">
+            <div><span class="eyebrow">PRESET FREE FIRE</span><h2>Pilih Mode</h2></div>
+          </div>
+          <div class="tweak-grid">
+            <article class="tweak-card rating-caution">
+              <div class="tweak-card-head">
+                <div>
+                  <span class="eyebrow">Free Fire</span>
+                  <h2>Low-End Mode</h2>
+                </div>
+              </div>
+              <p>Optimasi ringan buat PC spek rendah. Fokus ke stabilitas, bukan grafis maksimal.</p>
+              <button type="button" class="primary" data-control-id="emulator.low_end">Apply Tweak</button>
+            </article>
+            <article class="tweak-card rating-caution">
+              <div class="tweak-card-head">
+                <div>
+                  <span class="eyebrow">Free Fire</span>
+                  <h2>Max FPS Mode</h2>
+                </div>
+              </div>
+              <p>Optimasi agresif buat ngejar FPS setinggi mungkin. Butuh spek menengah ke atas.</p>
+              <button type="button" class="primary" data-control-id="emulator.max_fps">Apply Tweak</button>
+            </article>
+          </div>
+
+          <div class="section-heading">
+            <div><span class="eyebrow">DETEKSI</span><h2>Emulator Terpasang</h2></div>
+          </div>
+          <div class="control-panel">
+            <div class="form-grid">
+              <label>Emulator Terdeteksi
+                <div id="emulator-list" class="emulator-detected-box">
+                  <span class="placeholder-text">Belum ada deteksi.</span>
+                </div>
+              </label>
+              <label>Profil yang ingin ditinjau
+                <select data-control-id="emulator.profile" id="emulator-profile">
+                  <option value="free-fire-v7a">Free Fire V7A</option>
+                  <option value="free-fire-playstore">Free Fire Play Store</option>
+                </select>
+              </label>
+            </div>
+            <div class="button-row action-flow">
+              <button type="button" class="primary" data-control-id="emulator.apply" disabled>Apply Tweak</button>
+            </div>
+            <p id="emulator-status" class="inline-message">Belum diperiksa.</p>
+          </div>
+
+          <div class="section-heading">
+            <div><span class="eyebrow">OPTIMASI LANGSUNG</span><h2>BlueStacks &amp; MSI</h2></div>
+          </div>
+          <div class="tweak-grid">
+            <article class="tweak-card rating-caution">
+              <div class="tweak-card-head"><div><h2>BlueStacks</h2></div></div>
+              <p>Temukan instalasi dan versi BlueStacks sebelum menilai dukungan profil.</p>
+              <button type="button" class="primary" data-control-id="gaming.optimize_bluestacks">Apply Tweak</button>
+            </article>
+            <article class="tweak-card rating-caution">
+              <div class="tweak-card-head"><div><h2>MSI App Player</h2></div></div>
+              <p>Temukan instalasi dan versi MSI App Player sebelum menilai dukungan profil.</p>
+              <button type="button" class="primary" data-control-id="gaming.optimize_msi">Apply Tweak</button>
+            </article>
+          </div>
+        </section>
+
+
+
+        <section class="route" data-view="fixes" hidden>
+          <div class="page-header">
+            <div><span class="eyebrow">08 / FIXES</span><h1>Fixes</h1><p>Pemulihan fitur Windows yang hilang setelah tweaking — kamera, OBS Studio, dan screenshot.</p></div>
+            <span class="status-badge">Typed transaction</span>
+          </div>
+          <div class="tweak-grid">
+            <article class="tweak-card rating-caution">
+              <div class="tweak-card-head">
+                <div>
+                  <span class="eyebrow">Camera</span>
+                  <h2>Fix Camera all windows</h2>
+                </div>
+              </div>
+              <p>Pulihkan akses kamera yang hilang setelah tweaking agar webcam kembali siap dipakai untuk meeting, streaming, dan aplikasi video.</p>
+              <div class="inspected-scope">
+                <strong>Cakupan fitur terdeteksi</strong>
+                <ul>
+                  <li>Membuka kembali akses kamera untuk akun yang sedang digunakan.</li>
+                  <li>Membantu webcam terdeteksi kembali oleh aplikasi kamera, meeting, browser, dan software streaming.</li>
+                  <li>Perubahan diperiksa sebelum diterapkan, diverifikasi setelah selesai, dan dapat dipulihkan jika diperlukan.</li>
+                </ul>
+              </div>
+              <button type="button" class="primary" data-control-id="fixes.camera">Apply Tweak</button>
+            </article>
+            <article class="tweak-card rating-caution">
+              <div class="tweak-card-head">
+                <div>
+                  <span class="eyebrow">Capture</span>
+                  <h2>Fix Obs Studio dan fitur Screen Shoot</h2>
+                </div>
+              </div>
+              <p>Pulihkan fungsi capture yang bermasalah agar OBS Studio, perekaman layar, dan screenshot dapat digunakan kembali.</p>
+              <div class="inspected-scope">
+                <strong>Cakupan fitur terdeteksi</strong>
+                <ul>
+                  <li>Mengaktifkan kembali dukungan tangkapan layar dan perekaman untuk akun yang sedang digunakan.</li>
+                  <li>Membantu mengatasi preview atau hasil capture hitam pada OBS Studio dan aplikasi perekam layar.</li>
+                  <li>Perubahan diperiksa sebelum diterapkan, diverifikasi setelah selesai, dan dapat dipulihkan jika diperlukan.</li>
+                </ul>
+              </div>
+              <button type="button" class="primary" data-control-id="fixes.obs">Apply Tweak</button>
+            </article>
+          </div>
+        </section>
+
+        <section class="route" data-view="restore" hidden>
+          <div class="page-header">
+            <div><span class="eyebrow">07 / RESTORE</span><h1>Restore</h1><p>Kembalikan kondisi Windows dengan jalur pemulihan yang jelas ketika perubahan software, driver, atau konfigurasi membuat sistem tidak stabil.</p></div>
+          </div>
+          <div class="control-panel recovery-panel">
+            <div class="restore-info">
+              <h2>Windows System Restore</h2>
+              <p>Klik tombol di bawah untuk membuka System Restore bawaan Windows. Fitur ini memungkinkan Anda mengembalikan sistem ke titik pemulihan sebelumnya.</p>
+              <p>System Restore berguna ketika:</p>
+              <ul class="restore-list">
+                <li>Sistem tidak stabil setelah menginstal software baru</li>
+                <li>Driver bermasalah atau tidak kompatibel</li>
+                <li>Perubahan registry menyebabkan masalah</li>
+                <li>Windows Update menyebabkan error</li>
+              </ul>
+            </div>
+            <div class="button-row">
+              <button type="button" class="primary action-lg" data-control-id="restore.open">Buka System Restore <span aria-hidden="true">→</span></button>
+            </div>
+            <p id="restore-status" class="inline-message">Siap membuka System Restore Windows.</p>
+          </div>
+        </section>
+
+        <section class="route" data-view="activity" hidden>
+          <div class="page-header"><div><span class="eyebrow">LOG SISTEM</span><h1>Activity</h1><p>Pantau Smart Scan, pemeriksaan tweak, dan hasil optimasi agar setiap langkah penggunaan aplikasi mudah ditelusuri.</p></div></div>
+          <div class="control-panel">
+            <div class="toolbar">
+              <label>Cari activity <input type="search" data-control-id="activity.search" placeholder="Scan, tweak, session..."></label>
+              <button type="button" class="primary" data-control-id="activity.refresh">Muat activity</button>
+            </div>
+            <div id="activity-list" class="activity-timeline"></div>
+          </div>
+        </section>
+
+        <section class="route" data-view="settings" hidden>
+          <div class="page-header"><div><span class="eyebrow">PENGATURAN</span><h1>Settings</h1><p>Sesuaikan tampilan Ipan AppSettinX dan simpan preferensi aplikasi untuk pengalaman penggunaan yang lebih nyaman.</p></div></div>
+          <div class="control-panel settings-panel">
+            <div><h2>Tema Aplikasi</h2><p>Pilih tampilan yang sesuai dengan preferensi Anda.</p></div>
+            <label class="toggle-row">
+              <input type="checkbox" data-control-id="settings.theme">
+              <span><strong>Mode Terang</strong><small>Beralih antara tampilan gelap dan terang.</small></span>
+            </label>
+            <button type="button" class="primary" data-control-id="settings.save">Simpan pengaturan</button>
+            <p id="settings-status" class="inline-message"></p>
+          </div>
+        </section>
+
+        <section class="route" data-view="evidence" hidden>
+           <div class="page-header"><div><span class="eyebrow">TENTANG &amp; DUKUNGAN</span><h1>Tentang Ipan AppSettinX</h1><p>Optimizer Windows dan emulator yang menggabungkan Smart Scan, tweak terarah, verifikasi, dan Restore untuk pengalaman gaming yang lebih konsisten.</p></div></div>
+          <div class="control-panel about-panel">
+            <img class="about-logo" src="assets/ipan-store-logo.png" alt="Logo IPAN Store">
+            <div>
+              <h2>Ipan AppSettinX V1</h2>
+               <p>Ipan AppSettinX V1 dirancang untuk membantu gamer menemukan konfigurasi Windows dan emulator yang paling sesuai, mengurangi sumber stutter yang terdeteksi, dan menjaga setiap perubahan tetap dapat ditinjau serta dipulihkan.</p>
+            </div>
+          </div>
+
+           <div class="control-panel about-seo">
+              <h2>Mengapa memilih <mark>Ipan AppSettinX V1</mark>?</h2>
+             <div class="seo-grid">
+               <div class="seo-card">
+                  <strong>Optimasi pintar untuk setiap PC</strong>
+                  <p>Smart Scan membaca kemampuan perangkat lebih dahulu agar tweak Windows dan emulator tidak sekadar menyalin preset milik PC lain.</p>
+               </div>
+               <div class="seo-card">
+                  <strong>Free Fire terasa lebih nyaman</strong>
+                  <p>Profil menargetkan frame pacing stabil, easy drag yang konsisten, dan respons aim yang lebih natural tanpa menyentuh file game atau anti-cheat.</p>
+               </div>
+               <div class="seo-card">
+                  <strong>Fokus pada sumber stuttering</strong>
+                  <p>CPU, GPU, memory, storage, jaringan, Windows, dan emulator diperiksa untuk menemukan hambatan yang benar-benar terlihat pada perangkat.</p>
+               </div>
+               <div class="seo-card">
+                  <strong>BlueStacks dan MSI lebih terarah</strong>
+                  <p>Versi emulator serta kapasitas PC dipertimbangkan sebelum profil Free Fire dipilih, sehingga alokasi resource tetap seimbang.</p>
+               </div>
+               <div class="seo-card">
+                 <strong>Apply yang terverifikasi</strong>
+                  <p>Perubahan yang didukung melewati pemeriksaan, snapshot, penerapan, dan verifikasi sebelum dinyatakan berhasil.</p>
+               </div>
+               <div class="seo-card">
+                 <strong>Dibangun untuk menjadi pilihan terbaik</strong>
+                  <p>Ipan AppSettinX menyatukan tuning gaming, optimasi Free Fire, transparansi hasil, dan Restore dalam satu aplikasi lokal yang profesional.</p>
+               </div>
+            </div>
+          </div>
+
+            <div class="section-heading support-heading">
+              <span class="status-badge">Official Partner</span>
+            </div>
+          <div class="support-grid">
+            <button type="button" data-control-id="support.website" data-support-url="https://ipanstore.my.id/">
+              <img src="assets/ipan-store-logo.png" alt=""><span><strong>Website Resmi</strong><small>ipanstore.my.id</small></span>
+            </button>
+            <button type="button" data-control-id="support.whatsapp" data-support-url="https://wa.me/6288976496870">
+              <img src="assets/icons/whatsapp.svg" alt=""><span><strong>WA Admin</strong><small>IPAN Store</small></span>
+            </button>
+             <button type="button" data-control-id="support.discord" data-support-url="https://discord.gg/FTQVJQEAtu">
+               <img src="assets/icons/discord.svg" alt=""><span><strong>Discord</strong><small>Komunitas IPAN</small></span>
+             </button>
+            <button type="button" data-control-id="support.instagram" data-support-url="https://www.instagram.com/ipaan.18/">
+              <img src="assets/icons/instagram.svg" alt=""><span><strong>Instagram</strong><small>@ipaan.18</small></span>
+            </button>
+            <button type="button" data-control-id="support.tiktok" data-support-url="https://www.tiktok.com/@ipann.18">
+              <img src="assets/icons/tiktok.svg" alt=""><span><strong>TikTok</strong><small>@ipann.18</small></span>
+            </button>
+            <button type="button" data-control-id="support.whatsapp_channel" data-support-url="https://whatsapp.com/channel/0029Vb54vP4JkK7CBBrxGf0r">
+              <img src="assets/icons/whatsapp.svg" alt=""><span><strong>Saluran WA</strong><small>Update IPAN</small></span>
+            </button>
+          </div>
+          <p id="evidence-status" class="inline-message"></p>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="transaction-dialog" aria-labelledby="transaction-dialog-title">
+      <form method="dialog">
+         <span class="eyebrow">TRANSACTION PREVIEW</span>
+          <h2 id="transaction-dialog-title">Tinjau sebelum Apply Tweak</h2>
+        <div id="transaction-diff"></div>
+        <p id="transaction-warning" class="warning-callout"></p>
+        <label class="confirmation-row">
+          <input type="checkbox" data-control-id="transaction.confirm">
+          <span>Saya memahami dampak yang dijelaskan dan ingin melanjutkan Apply Tweak.</span>
+        </label>
+        <div class="dialog-actions">
+           <button type="button" data-control-id="transaction.apply" class="primary" disabled>Apply Tweak</button>
+           <button type="button" data-control-id="transaction.verify" disabled>Verifikasi</button>
+           <button type="button" data-control-id="transaction.rollback" disabled>Pulihkan</button>
+          <button type="button" data-control-id="transaction.close">Tutup</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="apply-process-dialog" class="apply-process-dialog" aria-labelledby="apply-process-title">
+      <div class="apply-process-visual" aria-hidden="true">
+        <div class="phase-dial" data-phase="check">
+          <div class="phase-dial-track"></div>
+          <div class="phase-dial-pointer"></div>
+          <div class="phase-node" data-process-step="check"></div>
+          <div class="phase-node" data-process-step="snapshot"></div>
+          <div class="phase-node" data-process-step="apply"></div>
+          <div class="phase-node" data-process-step="verify"></div>
+        </div>
+        <span class="process-core">IPX</span>
+      </div>
+      <span id="apply-process-kicker" class="eyebrow">APPLY ENGINE</span>
+      <h2 id="apply-process-title">Menyiapkan optimasi</h2>
+      <p id="apply-process-message">Pemeriksaan target sedang berlangsung.</p>
+      <div class="process-progress" role="progressbar" aria-label="Progres Apply Tweak" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <span id="apply-process-bar"></span>
+      </div>
+      <div class="process-meta">
+        <span id="apply-process-phase">WAITING</span>
+        <span id="apply-process-percent" class="process-percent">0%</span>
+      </div>
+      <ol id="apply-process-steps" class="process-steps">
+        <li data-process-step="check"><span></span>Pemeriksaan kompatibilitas</li>
+        <li data-process-step="snapshot"><span></span>Snapshot kondisi awal</li>
+        <li data-process-step="apply"><span></span>Penerapan tweak</li>
+        <li data-process-step="verify"><span></span>Verifikasi hasil</li>
+      </ol>
+      <button type="button" class="primary" data-control-id="process.close" hidden>Tutup</button>
+    </dialog>
+
+     <div id="global-status" class="global-error" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+    <div class="resize-zone resize-zone-top" data-resize="top" aria-hidden="true"></div>
+    <div class="resize-zone resize-zone-bottom" data-resize="bottom" aria-hidden="true"></div>
+    <div class="resize-zone resize-zone-left" data-resize="left" aria-hidden="true"></div>
+    <div class="resize-zone resize-zone-right" data-resize="right" aria-hidden="true"></div>
+    <div class="resize-zone resize-zone-top-left" data-resize="top_left" aria-hidden="true"></div>
+    <div class="resize-zone resize-zone-top-right" data-resize="top_right" aria-hidden="true"></div>
+    <div class="resize-zone resize-zone-bottom-left" data-resize="bottom_left" aria-hidden="true"></div>
+    <div class="resize-zone resize-zone-bottom-right" data-resize="bottom_right" aria-hidden="true"></div>
+    <script type="module" src="js/app.js"></script>
+  </body>
+</html>

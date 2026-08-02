@@ -1,0 +1,23 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.spec.bak
+*.log
+*.sqlite3
+*.db
+artifacts/
+playwright-report/
+test-results/
+.idea/
+.vscode/
+
+# Local tooling config that may contain secrets/API keys
+opencode.json
+

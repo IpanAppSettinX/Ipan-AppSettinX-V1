@@ -1,0 +1,8 @@
+-r requirements.in
+mypy
+pytest
+pytest-cov
+pytest-mock
+ruff
+pyinstaller
+playwright

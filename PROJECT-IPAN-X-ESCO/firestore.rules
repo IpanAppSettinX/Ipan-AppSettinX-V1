@@ -1,0 +1,57 @@
+rules_version = '2';
+
+// Device license binding for IPAN Optimizer member access.
+//
+// Invariant (enforced atomically by the server on every write batch):
+//   deviceUsers/{uid}        -> { deviceHash }   one account owns one device
+//   deviceBindings/{hash}    -> { uid }          one device serves one account
+//
+// Clients may only CREATE their own consistent pair; the pair must be
+// written in a single commit so getAfter() can cross-check both sides.
+// Update and delete are denied: HWID reset is an admin-only operation
+// performed from the Firebase Console.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function validHash(value) {
+      return value is string && value.matches('^[a-f0-9]{64}$');
+    }
+
+    match /deviceUsers/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && validHash(request.resource.data.deviceHash)
+        && request.resource.data.keys().hasOnly(['deviceHash'])
+        && getAfter(/databases/$(database)/documents/deviceBindings/$(request.resource.data.deviceHash)).data.uid == uid;
+      allow update, delete: if false;
+
+      match /{sub=**} {
+        allow read, write: if false;
+      }
+    }
+
+    match /deviceBindings/{deviceHash} {
+      allow read: if signedIn()
+        && resource.data.keys().hasOnly(['uid'])
+        && resource.data.uid == request.auth.uid;
+      allow create: if signedIn()
+        && validHash(deviceHash)
+        && request.resource.data.keys().hasOnly(['uid'])
+        && request.resource.data.uid == request.auth.uid
+        && getAfter(/databases/$(database)/documents/deviceUsers/$(request.auth.uid)).data.deviceHash == deviceHash;
+      allow update, delete: if false;
+
+      match /{sub=**} {
+        allow read, write: if false;
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
