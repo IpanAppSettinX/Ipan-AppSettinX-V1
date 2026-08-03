@@ -5,6 +5,191 @@
 > menyelesaikan pekerjaan pada sesi berjalan, agent **wajib memperbarui** file
 > ini (entri terbaru diletakkan paling atas).
 
+## 2026-08-02 — Emulator real tweaks + Fixes real tweaks + hapus preset Free Fire
+
+**Status:** Selesai. `ruff format --check`, `ruff check`, `mypy src` bersih;
+`pytest` = **104 passed, 4 deselected**; control matrix 58 kontrol valid;
+EXE direbuild + smoke test exit 0.
+
+### Perubahan
+
+1. **`core/tweak_engine.py`** — dua dict baru:
+   - `EMULATOR_TWEAK_COMMANDS`: `emulator.bluestacks5` (90+ reg add dari Viet
+     bat fitur 1 — BlueStacks_nxt registry: BootParameters, BlockDevice, Config
+     FPS=450, VCPUs, GlRendermode, FrameBuffer, Network, SharedFolder) dan
+     `emulator.msi_app_player` (50+ reg add dari Viet bat fitur 3 —
+     BlueStacks_msi2 registry: Config, FPS=450, VCPUs=4, EnableHighFPS,
+     EnableVSync=0, ShowFPS).
+   - `FIXES_TWEAK_COMMANDS`: `fixes.camera` (sc config FrameServer/camsvc/
+     SensorService auto + net start + ConsentStore webcam Allow + Reset-AppxPackage
+     WindowsCamera) dan `fixes.obs_screenshot` (CaptureService Start=3 +
+     GameDVR_Enabled=1 + XboxNetApiSvc/XblGameSave/XblAuthManager Start=3 +
+     SnippingTool app path + restart explorer).
+   - `execute_tweak` kini dispatch ke 5 dict (advanced, tweak_menu, gaming,
+     emulator, fixes).
+2. **`app/api.py`** — 2 bridge method baru: `apply_emulator_tweak(tweak_id)`
+   dan `apply_fix_tweak(tweak_id)`, masing-masing dengan titles dict dan
+   activity logging.
+3. **`adapters/emulators/discovery.py`** —增强 detection: setelah scan Uninstall
+   keys, fallback cek engine registry keys langsung (BlueStacks_nxt,
+   BlueStacks_msi2, BlueStacks) di HKLM 64+32 bit view. Menangkap instalasi
+   tanpa Uninstall entry (portable, stripped Windows, custom path). Cakupan
+   semua versi BlueStacks (4, 5, X) dan MSI App Player.
+4. **`frontend/index.html`** — section emulator dirombak:
+   - Hapus "PRESET FREE FIRE" (Low-End Mode, Max FPS Mode cards).
+   - Hapus "Profil yang ingin ditinjau" select (Free Fire V7A / Play Store).
+   - Hapus `emulator.apply` button.
+   - BlueStacks card: deskripsi → "Terapkan tweak performa BlueStacks 5".
+   - MSI App Player card: deskripsi → "Terapkan tweak performa MSI App Player".
+   - Fixes: "Fix Obs Studio dan fitur Screen Shoot" → "Fix OBS STUDIO Dan
+     fitur screen shoot".
+5. **`frontend/js/app.js`** — handler dirombak:
+   - `gaming.optimize_bluestacks` → `invoke("apply_emulator_tweak",
+     "emulator.bluestacks5")` via runSafetyCheck (sebelumnya detectEmulators).
+   - `gaming.optimize_msi` → `invoke("apply_emulator_tweak",
+     "emulator.msi_app_player")` via runSafetyCheck (sebelumnya detectEmulators).
+   - `fixes.camera` → `invoke("apply_fix_tweak", "fixes.camera")` via
+     runSafetyCheck (sebelumnya previewTransaction).
+   - `fixes.obs` → `invoke("apply_fix_tweak", "fixes.obs_screenshot")` via
+     runSafetyCheck (sebelumnya previewTransaction).
+   - Hapus handler `emulator.low_end`, `emulator.max_fps`, `emulator.apply`.
+   - `renderEmulators` dan `detectEmulators` dibersihkan dari referensi
+     `emulator.apply` dan `emulator-profile`.
+6. **`docs/control_matrix.source.json`** — 4 kontrol dihapus (emulator.profile,
+   emulator.apply, emulator.low_end, emulator.max_fps), 4 kontrol diperbarui
+   (gaming.optimize_bluestacks, gaming.optimize_msi, fixes.camera, fixes.obs
+   → real execution, bukan read-only). Total 62 → 58 kontrol.
+7. **`docs/CONTROL_MATRIX.md`** — regenerated via `check_control_matrix.py
+   --write`.
+8. **Tests**: `test_control_matrix.py` count 62→58; `test_e2e.py` hapus
+   assertion `emulator.apply` disabled + update fixes copy assertions; 
+   `test_api.py` ganti `test_emulator_unknown_schema_fails_read_only` →
+   `test_emulator_tweak_executes_real_operations`.
+
+### Catatan
+
+- Tweaks emulator BlueStacks 5 mengandung BootParameters dengan GUID/token
+  machine-specific dari Viet bat asli. Diterapkan apa adanya sesuai instruksi
+  user. BlockDevice paths reference `E:\BlueStacks_nxt\...` — akan bekerja
+  pada PC dengan path yang sama; pada PC lain BlueStacks akan ignore path
+  yang tidak ada.
+- `fixes.obs_screenshot` me-restart explorer.exe (`taskkill` + `explorer.exe`
+  launch). User akan melihat taskbar blink sebentar.
+- `fixes.camera` menjalankan `powershell Get-AppxPackage *WindowsCamera* |
+  Reset-AppxPackage` — memerlukan PowerShell + Appx module (ada di semua
+  Win10/11 default, mungkin tidak ada pada AME Privacy+ atau Tiny11 Core
+  yang hapus UWP).
+
+## 2026-08-02 — Build EXE + dukungan Windows custom (AtlasOS/ReviOS/Ghost Spectre/X Lite/KernelOS/Tiny11/AME)
+
+**Status:** Selesai. `ruff format --check`, `ruff check`, `mypy src` bersih;
+`pytest` = **104 passed, 4 deselected**; `pytest -m packaging` = **4 passed**;
+`check_control_matrix.py` (62 kontrol), `check_frontend_policy.py`,
+`check_asset_budget.py` valid. EXE `dist/IPANOptimizer/IPANOptimizer.exe`
+(5.830.616 bytes) + `dist/IPANOptimizerHelper.exe` dibangun ulang dan smoke
+test `--no-window` exit 0.
+
+### Riset
+
+Riset mendalam (via subagent general) terhadap Windows custom/debloated:
+AtlasOS, ReviOS, X Lite OS, KernelOS, Ghost Spectre, Nexus LiteOS, Tiny10/11,
+AME Privacy+/AME 10. Untuk setiap variant: komponen yang dihapus vs disabled,
+status Edge/WebView2/WMI/WinSxS/Defender/WU, kompatibilitas pywebview+psutil,
+risiko PyInstaller EXE. Hasil dirangkum di `docs/COMPATIBILITY.md` (tabel
+matrix 9 variant + best practices). Sumber utama: docs.atlasos.net,
+revi.cc/docs, ameliorated.io, github.com/ntdevlabs/tiny11builder,
+learn.microsoft.com/microsoft-edge/webview2, pywebview.flowrl.com.
+
+### Perubahan
+
+1. **`installer/main.manifest`**: tambah
+   `<activeCodePage xmlns="...SMI/2019/WindowsSettings">UTF-8</activeCodePage>`
+   di `<windowsSettings>`. Win10 1903+ dan semua Win11 mendapat UTF-8 sebagai
+   active code page proses; diabaikan aman pada build lebih lama.
+2. **`installer/ipan_optimizer.spec`** + **`installer/helper.spec`**: tambah
+   `uac_admin=True` ke pemanggilan `EXE(...)`. **Bug kritis diperbaiki:**
+   sebelumnya argumen `manifest=path` saja TIDAK mengoverride
+   `requestedExecutionLevel` bootloader PyInstaller yang default-nya
+   `asInvoker`. Verifikasi via `pefile` konfirmasi manifest ter-embed di EXE
+   sekarang berisi `level="requireAdministrator"` (sebelumnya `asInvoker` —
+   EXE tidak auto-elevate meski file manifest berkata `requireAdministrator`).
+3. **`src/ipan_optimizer/core/tweak_engine.py`**: pesan `TweakResult.message`
+   diperbarui untuk menjelaskan bahwa pada Windows custom (AtlasOS/ReviOS/
+   Ghost Spectre/dll.) beberapa service mungkin sudah dihapus sehingga tweak
+   terkait tidak bisa diterapkan — bukan hanya "butuh hak Administrator".
+   Perilaku per-step (capture_output, check=False, timeout=30s, exception
+   ditangkap) tidak berubah; tetap fail-soft per step.
+4. **`src/ipan_optimizer/data/MicrosoftEdgeWebview2Setup.exe`** (176.809 bytes):
+   bootstrapper resmi Microsoft diunduh dari
+   `https://go.microsoft.com/fwlink/p/?LinkId=2124704` dan diletakkan di
+   `src/ipan_optimizer/data/`. Spec sudah meng-bundle-nya ke
+   `_internal/ipan_optimizer/data/` di dist. Verifikasi post-build:
+   `dist/IPANOptimizer/_internal/ipan_optimizer/data/MicrosoftEdgeWebview2Setup.exe`
+   ada (176.809 bytes). Ini mengaktifkan path auto-install WebView2 pada
+   Windows custom di mana Edge/runtime dihapus (Ghost Spectre, X Lite, Tiny11,
+   AME Privacy+).
+5. **`docs/COMPATIBILITY.md`**: ditulis ulang lengkap. Tabel matrix 9 variant
+   (Atlas, ReviOS, AME Privacy+/AME 10, Tiny11 regular, Tiny11 Core, Ghost
+   Spectre, Nexus LiteOS, X Lite, KernelOS) dengan status Edge/WebView2/WMI/
+   WinSxS/Defender/WU dan level support (Full vs Best-effort). Best practices:
+   pywebview edgechromium tidak butuh Edge browser (cukup WebView2 Runtime),
+   UCRT selalu ada di Win10/11, VC runtime DLLs dibundle PyInstaller,
+   `requireAdministrator` bekerja di semua variant, code-signing adalah
+   mitigasi terpenting untuk false-positive AV.
+6. **`.venv/`**: venv Python 3.12.10 dibuat; deps produksi
+   (`psutil==7.2.2 pydantic==2.13.4 pywebview==6.2.1 pywin32==311`) + dev
+   (`pyinstaller==6.16.0 pyinstaller-hooks-contrib==2026.6 mypy==1.18.2
+   pytest==8.4.2 pytest-mock pytest-cov ruff==0.14.2 playwright==1.61.0`)
+   dipasang dengan versi yang sama persis dengan `requirements-dev.lock`.
+
+### Verifikasi EXE
+
+- `dist/IPANOptimizer/IPANOptimizer.exe`: 5.829.436 bytes, built 2026-08-02.
+- `dist/IPANOptimizerHelper.exe`: helper satu-shot untuk plan privilege.
+- Manifest ter-embed (via `pefile`): `execLevel=requireAdministrator`,
+  `activeCodePage=True`, `Win10/11 GUID=True`.
+- Bootstrapper WebView2 ter-bundle: 176.809 bytes di
+  `_internal/ipan_optimizer/data/`.
+- Smoke test `--no-window`: exit 0 (detection headless WebView2, runtime
+  init OK, tidak ada host mutation).
+- VC runtime DLLs (`vcruntime140.dll`, `msvcp140.dll`, `vcruntime140_1.dll`)
+  terkoleksi PyInstaller ke `_internal/`.
+
+### Catatan
+
+- **Best-effort variant:** Tiny11 Core (WinSxS dihapus) dan AME Privacy+
+  (service dihapus) — bootstrapper WebView2 Evergreen mungkin gagal install
+  karena servicing stack rusak. App exit code 3 dengan pesan Indonesia yang
+  jelas. Fallback masa depan: bundle **Fixed Version** WebView2 runtime folder
+  (no installer, no WinSxS dependency).
+- **Code-signing** EXE + helper + installer dengan sertifikat OV/EV masih
+  pending milik user — mitigasi terpenting untuk false-positive AV pada
+  Windows custom tanpa Defender.
+- **Inno Setup installer** (`installer/IPANOptimizer.iss`) belum di-compile
+  di sesi ini (butuh Inno Setup terpasang); EXE sudah lengkap dan dapat
+  didistribusikan langsung.
+
+## 2026-08-02 — Entry point `run.py` (jalankan tanpa `-m`)
+
+**Status:** Selesai. `ruff format --check`, `ruff check`, `mypy src` bersih;
+`pytest` = **104 passed, 4 deselected**; `python run.py --no-window` exit 0.
+
+### Perubahan
+
+1. **`run.py` baru di root**: bootstrap yang menyisipkan `src/` ke `sys.path`
+   lalu memanggil `ipan_optimizer.main:main`. Memungkinkan `python run.py`
+   alih-alih `python -m ipan_optimizer.main` tanpa `pip install -e .`.
+   - `# ruff: noqa: E402, I001` karena import setelah mutasi `sys.path`
+     (pola standar bootstrap).
+   - Argumen CLI diteruskan apa adanya ke `main()` (argparse di
+     `src/ipan_optimizer/main.py`).
+
+### Catatan
+
+- Tidak mengubah kode produksi mana pun; `main.py` dan layout `src/` tetap.
+- `run.py` di luar `packages` mypy (`packages = ["ipan_optimizer"]`) sehingga
+  tidak memengaruhi static analysis paket inti.
+
 ## 2026-08-02 — Login "Ingat saya", label AppSensiX, logo resize, ikon EXE, telemetry fallback, Amber tweaks
 
 **Status:** Selesai. `pytest` = **88 passed, 4 deselected**; `ruff format`,

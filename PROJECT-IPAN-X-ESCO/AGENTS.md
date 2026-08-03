@@ -25,6 +25,36 @@ changing behavior. The product specification is `Blueprint_IPAN_Optimizer.md`;
 - Preserve exact typed snapshots and compare expected state before apply and
   rollback.
 
+## Policy overrides (user-approved, documented)
+
+The following production behaviours intentionally override the default safety
+contract above. They are confined to the packaged release EXE and installer,
+never to test runs, and each carries a documented mitigation.
+
+1. **Auto-elevation of the main EXE.** `installer/main.manifest` declares
+   `level="requireAdministrator"` so the app always runs elevated. This is
+   required so HKLM/`sc config`/`powercfg`/`bcdedit` tweaks that were wired in
+   the previous session can apply without asking the user to right-click
+   "Run as administrator". **Implementation note:** the PyInstaller spec must
+   also pass `uac_admin=True` to `EXE(...)` — the `manifest=path` argument
+   alone does NOT override the bootloader's default `asInvoker` execution
+   level in the embedded RT_MANIFEST resource. Mitigation: tests never execute
+   those tweaks; the Dry Run overlay remains the default backend in
+   development; the privileged helper (`helper.spec`) is still a separate
+   binary with its own manifest and signed-plan validation boundary.
+2. **Automatic WebView2 runtime install.** When the Microsoft Edge WebView2
+   Runtime is missing, the app launches the official Microsoft bootstrapper
+   (`MicrosoftEdgeWebview2Setup.exe`) bundled under
+   `src/ipan_optimizer/data/`. The installer is never silent: the user always
+   sees the official Microsoft installer UI. If the bootstrapper is not
+   bundled, the app exits with a clear message and never downloads anything.
+   Mitigation: detection and launch go through seam functions in
+   `src/ipan_optimizer/app/webview2_runtime.py`; tests inject mocks so no
+   real Microsoft binary is ever launched and no host mutation occurs in CI.
+3. **Windows 10/11 all-version compatibility.** `main.manifest` declares the
+   canonical Windows 10/11 supportedOS GUID so every build (1809 through
+   Windows 11 24H2+) treats the app as Windows-aware.
+
 ## Structure and style
 
 - Python source lives under `src/ipan_optimizer`; use Python 3.12 type hints.

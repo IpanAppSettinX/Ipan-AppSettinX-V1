@@ -64,3 +64,12 @@ Real Windows mutations and installer validation are release-blocked until they
 pass disposable-VM tests, manual hardware QA, signing review, and the complete
 control matrix. Current implementation supports fake and Dry Run execution.
 
+## Policy overrides (user-approved)
+
+See `AGENTS.md` → "Policy overrides" for the full list. In short: the packaged
+EXE auto-elevates via its manifest (`requireAdministrator`), auto-installs the
+official Microsoft WebView2 bootstrapper when the runtime is missing, and
+declares Windows 10/11 all-version compatibility. Tests never exercise these
+production-only paths; they mock the seams in
+`src/ipan_optimizer/app/webview2_runtime.py`.
+

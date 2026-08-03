@@ -42,14 +42,27 @@ def test_helper_and_manifests_exist() -> None:
     assert (ROOT / "dist" / "IPANOptimizerHelper.exe").is_file()
     main_manifest = (ROOT / "installer" / "main.manifest").read_text(encoding="utf-8")
     helper_manifest = (ROOT / "installer" / "helper.manifest").read_text(encoding="utf-8")
-    assert 'level="asInvoker"' in main_manifest
+    # Main EXE auto-elevates so tweaks that require Administrator (HKLM,
+    # services, powercfg, bcdedit) work without a manual "Run as administrator".
+    assert 'level="requireAdministrator"' in main_manifest
     assert 'level="requireAdministrator"' in helper_manifest
+    # Windows 10 / Windows 11 compatibility GUID is declared so the app is
+    # treated as Windows 10/11-aware on every build (1809 through 11 24H2+).
+    assert "{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}" in main_manifest
 
 
 @pytest.mark.packaging
-def test_installer_source_has_safe_prerequisite_policy() -> None:
+def test_installer_auto_installs_webview2() -> None:
     source = (ROOT / "installer" / "IPANOptimizer.iss").read_text(encoding="utf-8")
+    # Installer still runs at lowest privilege (no forced elevation for the
+    # installer itself); the bundled EXE handles its own UAC via manifest.
     assert "PrivilegesRequired=lowest" in source
+    # WebView2 detection is performed, and the official Microsoft bootstrapper
+    # is launched (non-silent) when the runtime is missing — the installer no
+    # longer hard-aborts when WebView2 is absent.
     assert "WebView2Installed" in source
-    assert "tidak mengunduh komponen secara diam-diam" in source
+    assert "MicrosoftEdgeWebview2Setup.exe" in source
+    assert "ExtractTemporaryFile" in source
+    # No silent install: the user always sees the Microsoft installer UI.
+    assert "/silent" not in source
     assert "http://" not in source

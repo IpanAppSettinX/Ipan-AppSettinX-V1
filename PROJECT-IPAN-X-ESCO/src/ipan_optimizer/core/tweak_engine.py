@@ -1255,12 +1255,8 @@ GAMING_TWEAK_COMMANDS: dict[str, list[TweakStep]] = {
             "1",
         ),
         # Kill latency processes (no delay latency processses.bat)
-        _run(["taskkill", "/f", "/im", "chrome.exe"]),
         _run(["taskkill", "/f", "/im", "msedge.exe"]),
-        _run(["taskkill", "/f", "/im", "discord.exe"]),
-        _run(["taskkill", "/f", "/im", "steamwebhelper.exe"]),
         _run(["taskkill", "/f", "/im", "EpicGamesLauncher.exe"]),
-        _run(["taskkill", "/f", "/im", "Spotify.exe"]),
         _run(["taskkill", "/f", "/im", "Teams.exe"]),
         _run(["taskkill", "/f", "/im", "OneDrive.exe"]),
         # Set HD-Player priority Realtime
@@ -1960,6 +1956,648 @@ GAMING_TWEAK_COMMANDS: dict[str, list[TweakStep]] = {
 }
 
 
+# ── Emulator tweaks (from Viet bat fitur 1 & 3) ────────────────
+# Fitur 1: Optimize BlueStacks 5 (BlueStacks_nxt registry)
+# Fitur 3: Optimize MSI App Player (BlueStacks_msi2 registry)
+
+EMULATOR_TWEAK_COMMANDS: dict[str, list[TweakStep]] = {
+    "emulator.bluestacks5": [
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android",
+            "BootParameters",
+            "REG_SZ",
+            (
+                "ROOT=/dev/sda1 SRC=/android DATA=/dev/sdb1 HOST=WIN "
+                "bstandroidport=9999 GlMode=1 VERSION=4.280.1.6309 OEM=nxt "
+                "LANG=en-US country=VN caCode=704 pcode=custom "
+                "OEMFEATURES=539180033 DNS=8.8.8.8 DNS2=10.0.2.3 "
+                "GUID=a39928fa-1af4-4d1a-b6c3-692734c6f8fc EngineState=plus "
+                "caSelector=se_45202 DPI=240 GlTransport=3 "
+                "appsfeatures=16592382 "
+                "installId=0bab0217-5abe-4c61-871a-fe1eac3ce2e6 "
+                "machineId=a39928fa-1af4-4d1a-b6c3-692734c6f8fc "
+                "versionMachineId=e49d8c78-305e-40bb-8002-532f69f9fef0 "
+                "ApiToken=f7ce332d-ce3e-4837-8cbc-f4af39d0dbcf ssse3=1 "
+                "abivalue=15 virttype=1 WINDOWSFRONTEND=10.0.2.2:2881 "
+                "SF=Documents,Pictures,InputMapper,BstSharedFolder "
+                "WINDOWSAGENT=10.0.2.2:2861 fps=450"
+            ),
+        ),
+        _reg_add(r"SOFTWARE\BlueStacks_nxt\Guests\Android", "DisableRobustness", "REG_DWORD", "1"),
+        _reg_add(r"SOFTWARE\BlueStacks_nxt\Guests\Android", "VirtType", "REG_SZ", "legacy"),
+        _reg_add(r"SOFTWARE\BlueStacks_nxt\Guests\Android", "Memory", "REG_DWORD", "1024"),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android", "IsHardwareAstcSupported", "REG_DWORD", "0"
+        ),
+        _reg_add(r"SOFTWARE\BlueStacks_nxt\Guests\Android", "IsSidebarVisible", "REG_DWORD", "1"),
+        _reg_add(r"SOFTWARE\BlueStacks_nxt\Guests\Android\BlockDevice\0", "Name", "REG_SZ", "sda1"),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\BlockDevice\0",
+            "Path",
+            "REG_SZ",
+            r"E:\BlueStacks_nxt\Engine\Android\Root.vdi",
+        ),
+        _reg_add(r"SOFTWARE\BlueStacks_nxt\Guests\Android\BlockDevice\1", "Name", "REG_SZ", "sdb1"),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\BlockDevice\1",
+            "Path",
+            "REG_SZ",
+            r"E:\BlueStacks_nxt\Engine\Android\Data.vdi",
+        ),
+        _reg_add(r"SOFTWARE\BlueStacks_nxt\Guests\Android\BlockDevice\2", "Name", "REG_SZ", "sdc1"),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\BlockDevice\2",
+            "Path",
+            "REG_SZ",
+            r"E:\BlueStacks_nxt\Engine\Android\SDCard.vdi",
+        ),
+        _reg_add(r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config", "VCPUs", "REG_DWORD", "2"),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config", "GlRendermode", "REG_DWORD", "1"
+        ),
+        _reg_add(r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config", "GlMode", "REG_DWORD", "1"),
+        _reg_add(r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config", "Camera", "REG_DWORD", "1"),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config", "ConfigSynced", "REG_DWORD", "1"
+        ),
+        _reg_add(r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config", "HScroll", "REG_DWORD", "1"),
+        _reg_add(r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config", "GpsMode", "REG_DWORD", "1"),
+        _reg_add(r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config", "FileSystem", "REG_DWORD", "1"),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config", "StopZygoteOnClose", "REG_DWORD", "0"
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config", "FenceSyncType", "REG_DWORD", "1"
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config", "FrontendNoClose", "REG_DWORD", "0"
+        ),
+        _reg_add(r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config", "GpsSource", "REG_DWORD", "0"),
+        _reg_add(r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config", "GpsLatitude", "REG_SZ", ""),
+        _reg_add(r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config", "GpsLongitude", "REG_SZ", ""),
+        _reg_add(r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config", "GlPort", "REG_DWORD", "3901"),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config", "HostSensorPort", "REG_DWORD", "2921"
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config",
+            "SoftControlBarHeightLandscape",
+            "REG_DWORD",
+            "0",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config",
+            "SoftControlBarHeightPortrait",
+            "REG_DWORD",
+            "0",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config", "GrabKeyboard", "REG_DWORD", "0"
+        ),
+        _reg_add(r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config", "DisableDWM", "REG_DWORD", "0"),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config", "DisablePcIme", "REG_DWORD", "0"
+        ),
+        _reg_add(r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config", "EnableBSTVC", "REG_DWORD", "0"),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config", "IsGoogleSigninDone", "REG_DWORD", "0"
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config", "ForceVMLegacyMode", "REG_DWORD", "1"
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config",
+            "FrontendServerPort",
+            "REG_DWORD",
+            "2881",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config", "BstAndroidPort", "REG_DWORD", "9999"
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config",
+            "TriggerMemoryTrimThreshold",
+            "REG_DWORD",
+            "700",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config",
+            "TriggerMemoryTrimTimerInterval",
+            "REG_DWORD",
+            "60000",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config", "BstAdbPort", "REG_DWORD", "5555"
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config",
+            "HostForwardSensorPort",
+            "REG_DWORD",
+            "12000",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config", "GPSAvailable", "REG_DWORD", "0"
+        ),
+        _reg_add(r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config", "Locale", "REG_SZ", "en-US"),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config",
+            "ImeSelected",
+            "REG_SZ",
+            "com.android.inputmethod.latin/.LatinIME",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config", "IsOneTimeSetupDone", "REG_DWORD", "1"
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config", "LastBootDate", "REG_SZ", "2/4/2022"
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config",
+            "DisplayName",
+            "REG_SZ",
+            "Bluestacks App Player",
+        ),
+        _reg_add(r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config", "Volume", "REG_DWORD", "100"),
+        _reg_add(r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config", "IsMuted", "REG_DWORD", "0"),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config",
+            "IsGoogleSigninPopupShown",
+            "REG_DWORD",
+            "1",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config",
+            "BstVmAId",
+            "REG_SZ",
+            "NjcwN2U4ZWEtZTE5OS00YTA1LWI4MTMtZTIwMDg4MjYwMjll",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config",
+            "BstVmId",
+            "REG_SZ",
+            "NDk0NWIxNDE3ZTk4NWQwMA==",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config",
+            "WindowPlacement",
+            "REG_SZ",
+            (
+                '<?xml version="1.0" encoding="utf-8"?>'
+                '<WINDOWPLACEMENT xmlns:xsd="http://www.w3.org/2001/XMLSchema" '
+                'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
+                "<length>44</length><flags>0</flags><showCmd>1</showCmd>"
+                "<minPosition><X>-32000</X><Y>-32000</Y></minPosition>"
+                "<maxPosition><X>-1</X><Y>-1</Y></maxPosition>"
+                "<normalPosition><Left>91</Left><Top>33</Top>"
+                "<Right>1177</Right><Bottom>651</Bottom></normalPosition>"
+                "</WINDOWPLACEMENT>"
+            ),
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config", "EnableHighFPS", "REG_DWORD", "1"
+        ),
+        _reg_add(r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config", "ShowFPS", "REG_DWORD", "1"),
+        _reg_add(r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config", "FPS", "REG_DWORD", "450"),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config",
+            "ShowSchemeDeletePopup",
+            "REG_DWORD",
+            "0",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config",
+            "ShowBlueHighlighter",
+            "REG_DWORD",
+            "0",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config",
+            "ShowMacroDeletePopup",
+            "REG_DWORD",
+            "0",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Config",
+            "LastNotificationEnabledAppLaunched",
+            "REG_SZ",
+            "com.dts.freefireth",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\FrameBuffer\0", "Depth", "REG_DWORD", "16"
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\FrameBuffer\0",
+            "HideBootProgress",
+            "REG_DWORD",
+            "1",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\FrameBuffer\0",
+            "WindowWidth",
+            "REG_DWORD",
+            "1072",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\FrameBuffer\0",
+            "WindowHeight",
+            "REG_DWORD",
+            "603",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\FrameBuffer\0",
+            "GuestWidth",
+            "REG_DWORD",
+            "960",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\FrameBuffer\0",
+            "GuestHeight",
+            "REG_DWORD",
+            "540",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Network\0",
+            "InboundRules",
+            "REG_MULTI_SZ",
+            r"tcp:5555:5555\0tcp:6666:6666\0tcp:7777:7777\0tcp:9999:9999\0udp:12000:12000",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Network\Redirect",
+            "tcp/5555",
+            "REG_DWORD",
+            "5555",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Network\Redirect",
+            "tcp/6666",
+            "REG_DWORD",
+            "6666",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Network\Redirect",
+            "tcp/7777",
+            "REG_DWORD",
+            "7777",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Network\Redirect",
+            "tcp/9999",
+            "REG_DWORD",
+            "9999",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\Network\Redirect",
+            "udp/12000",
+            "REG_DWORD",
+            "12000",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\SharedFolder\0",
+            "Name",
+            "REG_SZ",
+            "BstSharedFolder",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\SharedFolder\0",
+            "Path",
+            "REG_SZ",
+            r"E:\BlueStacks_nxt\Engine\UserData\SharedFolder\\",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\SharedFolder\0", "Writable", "REG_DWORD", "1"
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\SharedFolder\1", "Name", "REG_SZ", "Pictures"
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\SharedFolder\1",
+            "Path",
+            "REG_SZ",
+            r"C:\Users\ADMIN\Pictures",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\SharedFolder\1", "Writable", "REG_DWORD", "1"
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\SharedFolder\2",
+            "Name",
+            "REG_SZ",
+            "PublicPictures",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\SharedFolder\2",
+            "Path",
+            "REG_SZ",
+            r"C:\Users\Public\Pictures",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\SharedFolder\2", "Writable", "REG_DWORD", "1"
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\SharedFolder\3",
+            "Name",
+            "REG_SZ",
+            "Documents",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\SharedFolder\3",
+            "Path",
+            "REG_SZ",
+            r"C:\Users\ADMIN\Documents",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\SharedFolder\3", "Writable", "REG_DWORD", "1"
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\SharedFolder\4",
+            "Name",
+            "REG_SZ",
+            "PublicDocuments",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\SharedFolder\4",
+            "Path",
+            "REG_SZ",
+            r"C:\Users\Public\Documents",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\SharedFolder\4", "Writable", "REG_DWORD", "1"
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\SharedFolder\5",
+            "Name",
+            "REG_SZ",
+            "InputMapper",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\SharedFolder\5",
+            "Path",
+            "REG_SZ",
+            r"E:\BlueStacks_nxt\Engine\UserData\InputMapper",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_nxt\Guests\Android\SharedFolder\5", "Writable", "REG_DWORD", "1"
+        ),
+    ],
+    "emulator.msi_app_player": [
+        _reg_add(r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config", "VCPUs", "REG_DWORD", "4"),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config", "GlRendermode", "REG_DWORD", "1"
+        ),
+        _reg_add(r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config", "GlMode", "REG_DWORD", "1"),
+        _reg_add(r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config", "Camera", "REG_DWORD", "1"),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config", "ConfigSynced", "REG_DWORD", "1"
+        ),
+        _reg_add(r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config", "HScroll", "REG_DWORD", "1"),
+        _reg_add(r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config", "GpsMode", "REG_DWORD", "1"),
+        _reg_add(r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config", "FileSystem", "REG_DWORD", "1"),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config", "StopZygoteOnClose", "REG_DWORD", "0"
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config", "FenceSyncType", "REG_DWORD", "1"
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config", "FrontendNoClose", "REG_DWORD", "0"
+        ),
+        _reg_add(r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config", "GpsSource", "REG_DWORD", "0"),
+        _reg_add(r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config", "GpsLatitude", "REG_SZ", ""),
+        _reg_add(r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config", "GpsLongitude", "REG_SZ", ""),
+        _reg_add(r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config", "GlPort", "REG_DWORD", "3901"),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config", "HostSensorPort", "REG_DWORD", "2921"
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config",
+            "SoftControlBarHeightLandscape",
+            "REG_DWORD",
+            "0",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config",
+            "SoftControlBarHeightPortrait",
+            "REG_DWORD",
+            "0",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config", "GrabKeyboard", "REG_DWORD", "0"
+        ),
+        _reg_add(r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config", "DisableDWM", "REG_DWORD", "0"),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config", "DisablePcIme", "REG_DWORD", "0"
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config", "EnableBSTVC", "REG_DWORD", "0"
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config",
+            "IsGoogleSigninDone",
+            "REG_DWORD",
+            "1",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config", "ForceVMLegacyMode", "REG_DWORD", "1"
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config",
+            "FrontendServerPort",
+            "REG_DWORD",
+            "2881",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config", "BstAndroidPort", "REG_DWORD", "9999"
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config",
+            "TriggerMemoryTrimThreshold",
+            "REG_DWORD",
+            "700",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config",
+            "TriggerMemoryTrimTimerInterval",
+            "REG_DWORD",
+            "60000",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config", "GPSAvailable", "REG_DWORD", "0"
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config", "BstAdbPort", "REG_DWORD", "5555"
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config",
+            "HostForwardSensorPort",
+            "REG_DWORD",
+            "12000",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config",
+            "ImeSelected",
+            "REG_SZ",
+            "com.android.inputmethod.latin/.LatinIME",
+        ),
+        _reg_add(r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config", "Locale", "REG_SZ", "en-US"),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config", "DisplayName", "REG_SZ", "App Player"
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config",
+            "LastBootDate",
+            "REG_SZ",
+            "17/01/2022",
+        ),
+        _reg_add(r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config", "Volume", "REG_DWORD", "100"),
+        _reg_add(r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config", "IsMuted", "REG_DWORD", "0"),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config",
+            "IsGoogleSigninPopupShown",
+            "REG_DWORD",
+            "1",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config",
+            "BstVmAId",
+            "REG_SZ",
+            "NmJlMTlkOGMtZDQxZi00ODRkLWI1NjMtYWM1ZmM5NmNjNGQ2",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config",
+            "BstVmId",
+            "REG_SZ",
+            "M2VkYjE5ZWVkZGYwZGYwMA==",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config",
+            "WindowPlacement",
+            "REG_SZ",
+            (
+                '<?xml version="1.0" encoding="utf-8"?>'
+                '<WINDOWPLACEMENT xmlns:xsd="http://www.w3.org/2001/XMLSchema" '
+                'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
+                "<length>44</length><flags>0</flags><showCmd>1</showCmd>"
+                "<minPosition><X>-1</X><Y>-1</Y></minPosition>"
+                "<maxPosition><X>-1</X><Y>-1</Y></maxPosition>"
+                "<normalPosition><Left>97</Left><Top>80</Top>"
+                "<Right>1167</Right><Bottom>689</Bottom></normalPosition>"
+                "</WINDOWPLACEMENT>"
+            ),
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config", "EnableHighFPS", "REG_DWORD", "1"
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config", "EnableVSync", "REG_DWORD", "0"
+        ),
+        _reg_add(r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config", "ShowFPS", "REG_DWORD", "1"),
+        _reg_add(r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config", "FPS", "REG_DWORD", "450"),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config",
+            "LastNotificationEnabledAppLaunched",
+            "REG_SZ",
+            "com.dts.freefireth",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config",
+            "NotificationModePopupShownCount",
+            "REG_DWORD",
+            "3",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config",
+            "IsMinimizeSelectedOnReceiveGameNotificationPopup",
+            "REG_DWORD",
+            "0",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config",
+            "RunAppProcessId",
+            "REG_DWORD",
+            "3512",
+        ),
+        _reg_add(
+            r"SOFTWARE\BlueStacks_msi2\Guests\Android\Config",
+            "ShowSchemeDeletePopup",
+            "REG_DWORD",
+            "1",
+        ),
+    ],
+}
+
+
+# ── Fixes tweaks (from fix camera bat + fix obs bat) ────────────
+
+FIXES_TWEAK_COMMANDS: dict[str, list[TweakStep]] = {
+    "fixes.camera": [
+        _sc_config("FrameServer", "auto"),
+        _sc_config("FrameServerMonitor", "auto"),
+        _sc_config("camsvc", "auto"),
+        _sc_config("SensorService", "auto"),
+        _run(["net", "start", "FrameServer"]),
+        _run(["net", "start", "camsvc"]),
+        _run(["net", "start", "SensorService"]),
+        _reg_add(
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\webcam",
+            "Value",
+            "REG_SZ",
+            "Allow",
+        ),
+        _reg_add(
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\webcam",
+            "Value",
+            "REG_SZ",
+            "Allow",
+            hive="HKCU",
+        ),
+        _reg_add(
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager"
+            r"\ConsentStore\webcam\NonPackaged",
+            "Value",
+            "REG_SZ",
+            "Allow",
+        ),
+        _run(
+            [
+                "powershell",
+                "-Command",
+                "Get-AppxPackage *WindowsCamera* | Reset-AppxPackage",
+            ]
+        ),
+    ],
+    "fixes.obs_screenshot": [
+        _reg_add(r"SYSTEM\CurrentControlSet\Services\CaptureService", "Start", "REG_DWORD", "3"),
+        _reg_add(r"System\GameConfigStore", "GameDVR_Enabled", "REG_DWORD", "1", hive="HKCU"),
+        _reg_add(r"System\GameConfigStore", "GameDVR_FSEBehavior", "REG_DWORD", "0", hive="HKCU"),
+        _reg_add(
+            r"System\GameConfigStore",
+            "GameDVR_HonorUserFSEBehaviorMode",
+            "REG_DWORD",
+            "1",
+            hive="HKCU",
+        ),
+        _reg_add(
+            r"System\GameConfigStore",
+            "GameDVR_DXGIHonorFSEWindowsCompatible",
+            "REG_DWORD",
+            "1",
+            hive="HKCU",
+        ),
+        _reg_add(r"SYSTEM\CurrentControlSet\Services\XboxNetApiSvc", "Start", "REG_DWORD", "3"),
+        _reg_add(r"SYSTEM\CurrentControlSet\Services\XblGameSave", "Start", "REG_DWORD", "3"),
+        _reg_add(r"SYSTEM\CurrentControlSet\Services\XblAuthManager", "Start", "REG_DWORD", "3"),
+        _reg_add(
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\SnippingTool.exe",
+            "",
+            "REG_SZ",
+            "",
+        ),
+        _run(["taskkill", "/f", "/im", "explorer.exe"]),
+        _run(["explorer.exe"]),
+    ],
+}
+
+
 def _run_step(step: TweakStep) -> dict[str, Any]:
     if sys.platform != "win32":
         return {
@@ -1997,6 +2635,8 @@ def execute_tweak(tweak_id: str, title: str) -> TweakResult:
         ADVANCED_TWEAK_COMMANDS.get(tweak_id)
         or TWEAK_MENU_COMMANDS.get(tweak_id)
         or GAMING_TWEAK_COMMANDS.get(tweak_id)
+        or EMULATOR_TWEAK_COMMANDS.get(tweak_id)
+        or FIXES_TWEAK_COMMANDS.get(tweak_id)
     )
     if not steps_def:
         raise ValueError(f"Tweak {tweak_id} tidak memiliki definisi operasi.")
@@ -2012,13 +2652,17 @@ def execute_tweak(tweak_id: str, title: str) -> TweakResult:
     if result.applied == 0 and result.failed > 0:
         result.message = (
             f"{title}: semua operasi gagal. "
-            "Jalankan aplikasi sebagai Administrator untuk tweak HKLM/service."
+            "Jalankan aplikasi sebagai Administrator untuk tweak HKLM/service. "
+            "Pada Windows custom (AtlasOS/ReviOS/Ghost Spectre/dll.) beberapa "
+            "service mungkin sudah dihapus sehingga tweak terkait tidak bisa "
+            "diterapkan."
         )
         result.success = False
     elif result.failed > 0:
         result.message = (
             f"{title}: {result.applied} operasi berhasil, {result.failed} gagal "
-            "(kemungkinan butuh hak Administrator)."
+            "(kemungkinan butuh hak Administrator, atau service/target sudah "
+            "dihapus pada Windows custom)."
         )
     else:
         result.message = f"{title}: {result.applied} operasi berhasil diterapkan."

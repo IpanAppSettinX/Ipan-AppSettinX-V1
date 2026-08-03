@@ -1,5 +1,32 @@
 # Tasks
 
+## Build EXE + Windows custom compatibility
+
+- [x] Riset mendalam Windows custom/debloated: AtlasOS, ReviOS, X Lite, KernelOS,
+  Ghost Spectre, Nexus LiteOS, Tiny10/11, AME Privacy+/AME 10. Dokumentasi
+  matrix 9 variant di `docs/COMPATIBILITY.md`.
+- [x] Tambah `<activeCodePage>UTF-8</activeCodePage>` ke `installer/main.manifest`.
+- [x] Perbaiki bug kritis: `uac_admin=True` di `ipan_optimizer.spec` dan
+  `helper.spec`. Sebelumnya manifest embed PyInstaller masih `asInvoker`
+  meski file manifest berkata `requireAdministrator`.
+- [x] Bundle `MicrosoftEdgeWebview2Setup.exe` resmi Microsoft (176.809 bytes
+  dari `go.microsoft.com/fwlink/p/?LinkId=2124704`) ke
+  `src/ipan_optimizer/data/`. Terkoleksi ke
+  `_internal/ipan_optimizer/data/` di dist.
+- [x] Perbarui pesan `TweakResult.message` untuk menjelaskan service yang
+  sudah dihapus pada Windows custom (fail-soft per step tidak berubah).
+- [x] Build `dist/IPANOptimizer/IPANOptimizer.exe` (5.829.436 bytes) +
+  `dist/IPANOptimizerHelper.exe`. Manifest ter-embed verified via `pefile`:
+  `requireAdministrator` + `activeCodePage` + Win10/11 GUID.
+- [x] Smoke test `--no-window` exit 0; semua gate lulus (`ruff`, `mypy`,
+  `pytest` 104+4 passed, control matrix 62, frontend policy, asset budget).
+- [ ] Compile Inno Setup installer `dist-installer/IPANOptimizer-Setup-0.1.0.exe`
+  (butuh Inno Setup terpasang — pending user).
+- [ ] Code-sign EXE + helper + installer dengan sertifikat OV/EV organisasi
+  (pending user).
+- [ ] Bundle Fixed Version WebView2 runtime folder sebagai fallback final untuk
+  Tiny11 Core / AME Privacy+ (WinSxS dihapus, servicing rusak).
+
 ## Phase 0 - Specification freeze
 
 - [x] Preserve the three source documents.
@@ -323,3 +350,56 @@
 - [x] Update unit, integration, and E2E tests for the new field, the trace
   overlay structure, and the renamed labels; full suite 88 passed, control
   matrix / frontend policy / asset budget valid.
+
+## Windows 10/11 compatibility, auto-install WebView2, auto-elevate (policy override)
+
+- [x] Replace the placeholder Windows compatibility GUID in `main.manifest`
+  with the canonical Windows 10/11 GUID `{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}`
+  so the OS treats the app as Windows 10/11-aware on every build (1809 through
+  Windows 11 24H2+). Add `activeCodePage=UTF-8`.
+- [x] Switch `main.manifest` execution level from `asInvoker` to
+  `requireAdministrator` so the EXE always prompts UAC and runs elevated. This
+  unblocks the HKLM/service/powercfg/bcdedit tweaks added in the previous
+  session without requiring the user to manually "Run as administrator".
+  **Policy override:** this contradicts the original `asInvoker` contract in
+  ARCHITECTURE.md/SPEC.md; documented below and in AGENTS.md.
+- [x] New module `src/ipan_optimizer/app/webview2_runtime.py`:
+  - `is_webview2_installed(reader=None)` — single source of truth that reads
+    the EdgeUpdate registry keys (machine + user, WOW64 32-bit view) and
+    treats the `0.0.0.0` staging sentinel as "not installed".
+  - `bootstrapper_path()` — resolves the bundled `MicrosoftEdgeWebview2Setup.exe`
+    inside `sys._MEIPASS` (PyInstaller) or `src/ipan_optimizer/data/` (dev).
+  - `install_webview2(exe_path, runner=None)` — launches the official
+    Microsoft bootstrapper with its default UI (never silent), waits for it,
+    returns the exit code.
+  - `ensure_webview2(reader, runner, bundle_root, headless)` — orchestration:
+    detect → run bootstrapper if missing → recheck. `headless=True` only
+    detects, never installs (safe for `--no-window` smoke tests).
+  - All host interaction goes through seam functions so tests mock without
+    touching the real host.
+- [x] Refactor `adapters/windows/capabilities.py::_detect_webview2` to call
+  `is_webview2_installed` so capability detection and runtime bootstrap share
+  the same logic. No behavioural change for existing capability scans.
+- [x] Wire `ensure_runtime_requirements(headless=...)` into `main.py::main()`.
+  Before opening the window, the app now ensures WebView2 is present; if the
+  bootstrapper is bundled it is launched, otherwise the app exits with code 3
+  and a clear Indonesian message. `--no-window` runs detection only.
+- [x] `installer/ipan_optimizer.spec` now conditionally bundles
+  `MicrosoftEdgeWebview2Setup.exe` into `_internal/ipan_optimizer/data/` when
+  the developer has placed the official Microsoft file in
+  `src/ipan_optimizer/data/`.
+- [x] `installer/IPANOptimizer.iss` rewritten: when WebView2 is missing, the
+  installer extracts and runs the bundled official Microsoft bootstrapper
+  (non-silent) instead of hard-aborting. Still `PrivilegesRequired=lowest`;
+  the EXE handles its own UAC via manifest.
+- [x] Update `tests/packaging/test_artifacts.py`: assert
+  `requireAdministrator` in both manifests, assert the Windows 10/11 GUID, and
+  assert the installer auto-installs (not silent) WebView2 via the bootstrapper.
+- [x] New `tests/unit/test_webview2_runtime.py` (13 cases): detection truth
+  table, staging sentinel, non-Windows guard, bootstrapper path resolution,
+  install runner contract, exit-code propagation, `ensure_webview2`
+  orchestration (already-installed / headless / success-after-install /
+  missing-bootstrapper / nonzero-exit / recheck-still-missing). All use mocks;
+  no host mutation.
+- [x] Document the policy override in `AGENTS.md`, `SPEC.md`,
+  `ARCHITECTURE.md`, `THREAT_MODEL.md`, and `LAST_ACTIVITY.md`.

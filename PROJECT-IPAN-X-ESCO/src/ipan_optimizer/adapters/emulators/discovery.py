@@ -19,7 +19,21 @@ class EmulatorProduct:
 
 
 class EmulatorDiscovery:
-    """Read-only uninstall inventory; no vendor path or drive is assumed."""
+    """Read-only uninstall inventory; no vendor path or drive is assumed.
+
+    Scans the Windows Uninstall registry keys for BlueStacks and MSI App
+    Player across all versions. Falls back to the engine registry keys
+    (BlueStacks_nxt, BlueStacks_msi2, BlueStacks) when the Uninstall entry
+    is missing (common on stripped Windows or portable installs).
+    """
+
+    # Engine registry roots — each maps to a family. These cover every
+    # BlueStacks generation (4 = BlueStacks, 5 = BlueStacks_nxt, MSI = msi2).
+    _ENGINE_KEYS: tuple[tuple[int, str, str], ...] = (
+        (0x80000002, r"SOFTWARE\BlueStacks_nxt", "bluestacks"),
+        (0x80000002, r"SOFTWARE\BlueStacks_msi2", "msi_app_player"),
+        (0x80000002, r"SOFTWARE\BlueStacks", "bluestacks"),
+    )
 
     def discover(self) -> list[EmulatorProduct]:
         if sys.platform != "win32":
@@ -89,6 +103,34 @@ class EmulatorDiscovery:
                             )
                     except OSError:
                         continue
+
+        # Fallback: check engine registry keys directly. This catches
+        # installations where the Uninstall entry is absent (portable,
+        # stripped Windows, or custom install paths) but the engine
+        # registry root still exists.
+        for hive, key_path, family in self._ENGINE_KEYS:
+            engine_id = f"{family}:engine:{key_path.casefold()}"
+            if any(p.family == family for p in products.values()):
+                continue
+            for view in (winreg.KEY_WOW64_64KEY, winreg.KEY_WOW64_32KEY):
+                try:
+                    with winreg.OpenKey(hive, key_path, 0, winreg.KEY_QUERY_VALUE | view) as key:
+                        version = _query_string(key, "Version")
+                except OSError:
+                    continue
+                display_name = "MSI App Player" if family == "msi_app_player" else "BlueStacks"
+                products[engine_id] = EmulatorProduct(
+                    product_id=engine_id,
+                    family=family,
+                    name=display_name,
+                    version=version,
+                    install_location=None,
+                    publisher=None,
+                    applicability="UNKNOWN_READ_ONLY",
+                    reason="Engine registry key ditemukan (Uninstall entry tidak ada).",
+                )
+                break
+
         return sorted(products.values(), key=lambda product: product.name.casefold())
 
 

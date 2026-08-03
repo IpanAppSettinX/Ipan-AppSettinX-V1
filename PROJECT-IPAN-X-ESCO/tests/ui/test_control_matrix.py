@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_every_control_has_test_mapping() -> None:
     payload = json.loads((ROOT / "docs" / "control_matrix.source.json").read_text(encoding="utf-8"))
     controls = payload["controls"]
-    assert len(controls) == 62
+    assert len(controls) == 58
     assert all(item["test_ids"] for item in controls)
     assert len({item["control_id"] for item in controls}) == len(controls)
 

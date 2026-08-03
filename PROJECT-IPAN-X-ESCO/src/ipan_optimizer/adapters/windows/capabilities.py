@@ -90,31 +90,34 @@ def _detect_webview2() -> Capability:
     try:
         import winreg
 
-        locations = (
-            (
-                winreg.HKEY_LOCAL_MACHINE,
-                r"SOFTWARE\Microsoft\EdgeUpdate\Clients"
-                r"\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
-                winreg.KEY_WOW64_32KEY,
-            ),
-            (
-                winreg.HKEY_CURRENT_USER,
-                r"Software\Microsoft\EdgeUpdate\Clients"
-                r"\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
-                0,
-            ),
+        from ipan_optimizer.app.webview2_runtime import (
+            WEBVIEW2_MACHINE_KEY,
+            WEBVIEW2_USER_KEY,
+            is_webview2_installed,
         )
-        for hive, path, view in locations:
+
+        def _reader(hive: int, key_path: str, view: int) -> str | None:
             try:
-                with winreg.OpenKey(hive, path, 0, winreg.KEY_QUERY_VALUE | view) as key:
-                    version, _ = winreg.QueryValueEx(key, "pv")
-                    return _capability(
-                        "webview2.runtime",
-                        str(version),
-                        "WebView2 Evergreen terdeteksi melalui EdgeUpdate.",
-                    )
+                with winreg.OpenKey(hive, key_path, 0, winreg.KEY_QUERY_VALUE | view) as key:
+                    value, _ = winreg.QueryValueEx(key, "pv")
+                    return str(value)
             except FileNotFoundError:
-                continue
+                return None
+            except OSError:
+                return None
+
+        installed = is_webview2_installed(reader=_reader)
+        if installed:
+            machine_pv = _reader(
+                winreg.HKEY_LOCAL_MACHINE, WEBVIEW2_MACHINE_KEY, winreg.KEY_WOW64_32KEY
+            )
+            user_pv = _reader(winreg.HKEY_CURRENT_USER, WEBVIEW2_USER_KEY, 0)
+            version = machine_pv or user_pv or ""
+            return _capability(
+                "webview2.runtime",
+                version,
+                "WebView2 Evergreen terdeteksi melalui EdgeUpdate.",
+            )
     except OSError as exc:
         return _capability(
             "webview2.runtime",

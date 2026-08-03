@@ -32,4 +32,5 @@ exe = EXE(
     upx=False,
     console=True,
     manifest=str(ROOT / "installer" / "helper.manifest"),
+    uac_admin=True,
 )

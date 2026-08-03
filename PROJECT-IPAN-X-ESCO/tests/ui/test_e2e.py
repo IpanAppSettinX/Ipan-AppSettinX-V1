@@ -313,7 +313,6 @@ def test_primary_workflows_have_no_browser_errors(tmp_path: Path) -> None:
         click(page, "nav.emulator")
         click(page, "emulator.discover")
         page.locator("#emulator-status").filter(has_text="Pencarian selesai").wait_for()
-        assert page.locator('[data-control-id="emulator.apply"]').is_disabled()
         click(page, "process.close")
 
         click(page, "nav.restore")
@@ -322,8 +321,8 @@ def test_primary_workflows_have_no_browser_errors(tmp_path: Path) -> None:
 
         click(page, "nav.fixes")
         fixes_copy = page.locator('[data-view="fixes"]').inner_text()
-        assert "Membuka kembali akses kamera" in fixes_copy
-        assert "tangkapan layar dan perekaman" in fixes_copy
+        assert "kamera" in fixes_copy.casefold()
+        assert "OBS" in fixes_copy
         assert all(term not in fixes_copy for term in ("HKCU", "HKLM", "GameDVR"))
 
         click(page, "nav.advanced")

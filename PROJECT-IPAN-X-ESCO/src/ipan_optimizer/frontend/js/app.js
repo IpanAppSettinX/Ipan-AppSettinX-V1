@@ -1064,20 +1064,14 @@ const handlers = {
   "nav.restore": (control) => navigate(control.dataset.route),
   "nav.fixes": (control) => navigate(control.dataset.route),
   "fixes.camera": async (control) => {
-    state.selectedRules = new Set(["fix.webcam_consent"]);
-    state.transactionTweak = {
-      warning:
-        "Akses kamera untuk akun ini akan dipulihkan. Tinjau perubahan sebelum melanjutkan; kondisi sebelumnya tetap dapat dikembalikan.",
-    };
-    await previewTransaction(control);
+    await runSafetyCheck(control, "Memperbaiki kamera", () =>
+      invoke("apply_fix_tweak", "fixes.camera"),
+    );
   },
   "fixes.obs": async (control) => {
-    state.selectedRules = new Set(["fix.game_dvr_restore"]);
-    state.transactionTweak = {
-      warning:
-        "Dukungan screenshot dan perekaman layar untuk akun ini akan dipulihkan. Tinjau perubahan sebelum melanjutkan; kondisi sebelumnya tetap dapat dikembalikan.",
-    };
-    await previewTransaction(control);
+    await runSafetyCheck(control, "Memperbaiki OBS & screenshot", () =>
+      invoke("apply_fix_tweak", "fixes.obs_screenshot"),
+    );
   },
   "nav.activity": async (control) => {
     navigate(control.dataset.route);
@@ -1118,32 +1112,17 @@ const handlers = {
     );
   },
   "gaming.back": (control) => navigate(control.dataset.route),
-  "gaming.optimize_bluestacks": async (control) => detectEmulators(control, "bluestacks"),
-  "gaming.optimize_msi": async (control) => detectEmulators(control, "msi_app_player"),
-  "emulator.low_end": async (control) => {
-    await runSafetyCheck(control, "Free Fire Low-End Mode", () =>
-      invoke("preview_emulator_profile", "free-fire-low-end", "free-fire-v7a"),
+  "gaming.optimize_bluestacks": async (control) => {
+    await runSafetyCheck(control, "Menerapkan tweak BlueStacks 5", () =>
+      invoke("apply_emulator_tweak", "emulator.bluestacks5"),
     );
   },
-  "emulator.max_fps": async (control) => {
-    await runSafetyCheck(control, "Free Fire Max FPS Mode", () =>
-      invoke("preview_emulator_profile", "free-fire-max-fps", "free-fire-playstore"),
+  "gaming.optimize_msi": async (control) => {
+    await runSafetyCheck(control, "Menerapkan tweak MSI App Player", () =>
+      invoke("apply_emulator_tweak", "emulator.msi_app_player"),
     );
   },
   "emulator.discover": detectEmulators,
-  "emulator.apply": async (control) => {
-    await runSafetyCheck(control, "Memeriksa profil emulator", async () => {
-      if (!state.selectedEmulatorId) throw new Error("Deteksi emulator terlebih dahulu.");
-      const profile = document.querySelector("#emulator-profile").value;
-      const result = await invoke("preview_emulator_profile", state.selectedEmulatorId, profile);
-      text(document.querySelector("#emulator-status"), `${result.state}: ${result.message}`);
-      return {
-        message: result.state === "UNKNOWN_READ_ONLY"
-          ? "Versi konfigurasi emulator belum didukung. Tidak ada perubahan yang dilakukan."
-          : result.message,
-      };
-    });
-  },
 
   "restore.open": async (control) => {
     await busy(control, async () => {
@@ -1343,13 +1322,6 @@ function renderEmulators(products, family = null) {
     const status = document.createElement("small");
     text(status, product.reason);
     item.append(name, version, publisher, status);
-    item.addEventListener("click", () => {
-      state.selectedEmulatorId = product.product_id;
-      for (const candidate of container.querySelectorAll(".emulator-item")) {
-        candidate.setAttribute("aria-pressed", String(candidate === item));
-      }
-      byControl("emulator.apply").disabled = false;
-    });
     fragment.append(item);
   }
   if (!visibleProducts.length) {
@@ -1360,7 +1332,6 @@ function renderEmulators(products, family = null) {
   }
   container.replaceChildren(fragment);
   state.selectedEmulatorId = visibleProducts[0]?.product_id || null;
-  byControl("emulator.apply").disabled = !state.selectedEmulatorId;
   if (visibleProducts[0]) container.querySelector(".emulator-item")?.setAttribute("aria-pressed", "true");
   return visibleProducts;
 }
@@ -1372,7 +1343,7 @@ async function detectEmulators(control, family = null) {
     state.emulatorProducts = await invoke("discover_emulators");
     const visibleProducts = renderEmulators(state.emulatorProducts, family);
     const message = visibleProducts.length
-      ? `${visibleProducts.length} emulator terdeteksi. Pilih hasil untuk meninjau kompatibilitas.`
+      ? `${visibleProducts.length} emulator terdeteksi. Gunakan tombol Apply Tweak di bawah untuk menerapkan optimasi.`
       : "Pencarian selesai. Emulator yang didukung tidak ditemukan.";
     text(document.querySelector("#emulator-status"), message);
     return { message };

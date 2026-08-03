@@ -108,6 +108,21 @@ def run_window(runtime: Runtime, *, debug: bool = False) -> None:
     webview.start(debug=debug, gui="edgechromium")
 
 
+def ensure_runtime_requirements(*, headless: bool) -> bool:
+    """Ensure host prerequisites (WebView2) are met before starting the UI.
+
+    Returns ``True`` when the WebView2 runtime is installed (or was installed
+    by the bundled Microsoft bootstrapper), ``False`` when it is still missing
+    and the UI cannot be started safely.
+
+    In ``--no-window`` mode this only performs a non-invasive detection check
+    and never launches the bootstrapper.
+    """
+    from ipan_optimizer.app.webview2_runtime import ensure_webview2
+
+    return ensure_webview2(headless=headless)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Ipan AppSettinX")
     parser.add_argument(
@@ -122,7 +137,17 @@ def main() -> int:
     del args.dry_run
     runtime = create_runtime()
     if not args.no_window:
+        if not ensure_runtime_requirements(headless=False):
+            print(
+                "[Ipan AppSettinX] WebView2 Runtime belum tersedia. "
+                "Pasang Microsoft Edge WebView2 Runtime Evergreen resmi, "
+                "lalu jalankan aplikasi kembali.",
+                file=sys.stderr,
+            )
+            return 3
         run_window(runtime, debug=args.debug)
+    else:
+        ensure_runtime_requirements(headless=True)
     return 0
 
 

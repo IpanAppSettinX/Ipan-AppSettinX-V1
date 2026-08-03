@@ -37,3 +37,20 @@ remote hives, recursive deletion, `.reg` execution, BCD/timer packs, blanket
 service disablement, Defender/Firewall/UAC/Update weakening, game memory access,
 DLL injection, packets, macros, APK/client changes, and anti-cheat bypass.
 
+## Policy overrides (user-approved)
+
+See `AGENTS.md` → "Policy overrides". Two overrides affect this threat model:
+
+1. **Auto-elevation (`requireAdministrator`)** widens the trust boundary of the
+   packaged EXE. Mitigation: it does not lower the OS UAC prompt — the user
+   still sees and must confirm the UAC consent. Tests never exercise the
+   elevated path; the Dry Run overlay remains the dev default; the privileged
+   helper binary keeps its own signed-plan boundary.
+2. **Automatic WebView2 install** launches a third-party binary (the official
+   Microsoft bootstrapper) bundled in `src/ipan_optimizer/data/`. Mitigation:
+   the binary is launched from a fixed, absolute path inside the bundle (never
+   from a download), with its default UI shown (never silent), and only when
+   the runtime is genuinely missing. Detection and launch go through seam
+   functions; tests inject mocks so no real Microsoft binary is ever launched
+   in CI.
+

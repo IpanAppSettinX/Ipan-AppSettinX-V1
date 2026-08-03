@@ -190,6 +190,50 @@ class ApiBridge:
 
         return self._call(execute)
 
+    def apply_emulator_tweak(self, tweak_id: str) -> dict[str, Any]:
+        def execute() -> dict[str, object]:
+            from ipan_optimizer.core.tweak_engine import execute_tweak, result_to_dict
+
+            titles = {
+                "emulator.bluestacks5": "BlueStacks 5 Optimizer",
+                "emulator.msi_app_player": "MSI App Player Optimizer",
+            }
+            title = titles.get(tweak_id, tweak_id)
+            result = execute_tweak(tweak_id, title)
+            self.service._log_activity(
+                "emulator_tweak",
+                result.message,
+                tweak_id=tweak_id,
+                title=title,
+                applied=result.applied,
+                failed=result.failed,
+            )
+            return result_to_dict(result)
+
+        return self._call(execute)
+
+    def apply_fix_tweak(self, tweak_id: str) -> dict[str, Any]:
+        def execute() -> dict[str, object]:
+            from ipan_optimizer.core.tweak_engine import execute_tweak, result_to_dict
+
+            titles = {
+                "fixes.camera": "Fix Camera All Windows",
+                "fixes.obs_screenshot": "Fix OBS STUDIO Dan fitur screen shoot",
+            }
+            title = titles.get(tweak_id, tweak_id)
+            result = execute_tweak(tweak_id, title)
+            self.service._log_activity(
+                "fix_tweak",
+                result.message,
+                tweak_id=tweak_id,
+                title=title,
+                applied=result.applied,
+                failed=result.failed,
+            )
+            return result_to_dict(result)
+
+        return self._call(execute)
+
     def discover_emulators(self) -> dict[str, Any]:
         return self._call(self.service.discover_emulators)
 

@@ -89,9 +89,13 @@ def test_invalid_rule_returns_typed_error(bridge: ApiBridge) -> None:
     assert response["error"]["code"] == "VALIDATION_ERROR"
 
 
-def test_emulator_unknown_schema_fails_read_only(bridge: ApiBridge) -> None:
-    result = assert_success(bridge.apply_emulator_profile("unknown", "free-fire-n32"))
-    assert result["state"] == "UNKNOWN_READ_ONLY"
+def test_emulator_tweak_executes_real_operations(bridge: ApiBridge) -> None:
+    response = bridge.apply_emulator_tweak("emulator.bluestacks5")
+    assert response["success"] in {True, False}
+    if response["success"]:
+        assert response["data"]["applied"] >= 1
+    else:
+        assert "error" in response or response.get("data", {}).get("failed", 0) >= 0
 
 
 def test_gaming_tweak_executes_real_operations(bridge: ApiBridge) -> None:

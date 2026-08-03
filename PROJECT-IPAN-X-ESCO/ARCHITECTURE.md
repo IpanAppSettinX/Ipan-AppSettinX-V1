@@ -47,9 +47,25 @@ damaged.
 
 ## Privilege
 
-The main executable is `asInvoker`. A future one-shot elevated helper receives
-only a validated typed plan and nonce, revalidates all state after elevation,
-records a result, and exits. No permanent service is installed.
+The main executable declares `requireAdministrator` in its manifest (see the
+"Policy overrides" section of `AGENTS.md`) so it always runs elevated. This
+unblocks HKLM/service/powercfg/bcdedit tweaks. The Dry Run overlay remains the
+default backend in development; tests never execute real tweaks. A future
+one-shot elevated helper receives only a validated typed plan and nonce,
+revalidates all state after elevation, records a result, and exits. No
+permanent service is installed.
+
+## WebView2 runtime bootstrap
+
+`src/ipan_optimizer/app/webview2_runtime.py` is the single source of truth for
+WebView2 detection and automatic installation. `is_webview2_installed()` reads
+the EdgeUpdate registry keys (machine + user, WOW64 32-bit view). When the
+runtime is missing, `ensure_webview2()` launches the bundled official
+Microsoft bootstrapper (`MicrosoftEdgeWebview2Setup.exe`) non-silently, waits
+for it, and re-checks. All host interaction goes through seam functions so
+unit tests mock detection and installation without touching the real host.
+`main.py::ensure_runtime_requirements` is called before the window opens;
+`--no-window` runs detection only and never installs.
 
 ## Authentication
 
