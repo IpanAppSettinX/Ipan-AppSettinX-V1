@@ -2,6 +2,12 @@
 
 ## Build EXE + Windows custom compatibility
 
+- [x] Build EXE wajib pakai PyInstaller **6.16.0** (pinned di
+  `requirements-dev.lock`). PyInstaller 6.21+ memicu crash `0xc0000005` di
+  bootloader offset `0xa462` ("minimum supported platform is Windows...")
+  karena layout onefile baru (arsip dalam `.reloc`) + PE header 1970/no-ASLR
+  memicu injeksi `apphelp.dll` → CFG trap. Layout klasik 6.16 (arsip di-append
+  setelah image, ASLR ON) jalan normal. Terverifikasi 2026-08-06.
 - [x] Riset mendalam Windows custom/debloated: AtlasOS, ReviOS, X Lite, KernelOS,
   Ghost Spectre, Nexus LiteOS, Tiny10/11, AME Privacy+/AME 10. Dokumentasi
   matrix 9 variant di `docs/COMPATIBILITY.md`.

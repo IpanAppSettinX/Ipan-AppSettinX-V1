@@ -68,6 +68,11 @@ never to test runs, and each carries a documented mitigation.
 
 ## Commands
 
+Run from the repository root with the pinned venv (`.venv\Scripts\python.exe`).
+The venv must be rebuilt after a Windows reinstall: `pyvenv.cfg` points at the
+base interpreter (`C:\Python312` on this host); fix `home`/`executable` there
+if Python moved, then `python -m pip install -r requirements-dev.lock`.
+
 ```powershell
 python -m ruff format --check .
 python -m ruff check .
@@ -77,6 +82,18 @@ python scripts/check_control_matrix.py
 python scripts/check_frontend_policy.py
 python scripts/check_asset_budget.py
 ```
+
+## Packaging build (release EXE)
+
+- **Must use the pinned `pyinstaller==6.16.0`** (see `requirements-dev.lock`).
+  Do not build with PyInstaller 6.21+ in the global interpreter: its new
+  onefile bootloader layout (archive embedded in `.reloc`, PE `SizeOfImage`
+  spanning the whole file) triggers Windows `apphelp`/Control Flow Guard
+  injection → silent crash `0xc0000005` at bootloader offset `0xa462` before
+  Python loads, on Windows 10 19045. The 6.16 classic layout (archive appended
+  after the image, small `SizeOfImage`, ASLR enabled) runs correctly.
+- Build: `python -m PyInstaller --clean --noconfirm installer/ipan_optimizer.spec`
+- Output: `dist/Ipan AppSettinX V1.exe` (single file).
 
 ## Definition of done
 

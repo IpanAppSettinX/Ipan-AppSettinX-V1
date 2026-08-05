@@ -5,6 +5,69 @@
 > menyelesaikan pekerjaan pada sesi berjalan, agent **wajib memperbarui** file
 > ini (entri terbaru diletakkan paling atas).
 
+## 2026-08-06 — Fix crash "minimum supported platform" + cocokkan EXE dengan project
+
+**Status:** Selesai. Root cause ditemukan dan diperbaiki: build ulang pakai
+PyInstaller **6.16.0** (pinned di `requirements-dev.lock`) menghasilkan EXE
+yang jalan normal (stabil 20+ detik, 2 proses WebView2, mem ~102 MB).
+`dist_new/Ipan AppSettinX V1.exe` diganti dengan build 6.16 yang berfungsi.
+
+### Gejala
+
+- `dist_new/Ipan AppSettinX V1.exe` (build 8/3 pakai PyInstaller 6.21.0):
+  saat di-run sebagai administrator muncul "the minimum supported platform is
+  Windows..." / "platform not supported". Saat di-run normal → crash
+  `0xc0000005` di offset bootloader `0xa462` (Event Viewer), hanya ~23 modul
+  ter-load (Python tidak pernah sempat dimuat).
+- `Downloads/Ipan AppSettinX V1.exe` (8/5, 16.2 MB): jalan normal.
+
+### Root cause (bukan kode sumber)
+
+- Dua EXE punya **bootloader yang identik** (hash `0x400-0x10000` sama),
+  tapi **layout PE berbeda**:
+  - **Downloads (berfungsi):** `SizeOfImage=0x59000` (kecil), archive PKG
+    di-append SETELAH image (layout klasik PyInstaller), `DllCharacteristics=
+    0xc160` (ASLR ON), `TimeDateStamp` real (bukan 0), `CheckSum` valid.
+  - **dist_new (crash):** `SizeOfImage=0x103a000` (16 MB, arsip dimasukkan ke
+    section `.reloc`), `DllCharacteristics=0xc100` (ASLR OFF), `TimeDateStamp=0`
+    (1970), `CheckSum=0`.
+- Layout baru 6.21 (arsip dalam `.reloc`) + PE header 1970/no-ASLR memicu
+  injeksi `apphelp.dll` → trap Control Flow Guard → `0xc0000005` di `0xa462`
+  sebelum Python dimuat. Ini BUKAN bug di `main.py`/frontend — source dist_new
+  cocok 100% dengan project (frontend, main.py, telemetry, dll semua SAME).
+- Patch manual header (timestamp + ASLR + checksum) TIDAK cukup; fix yang benar
+  adalah **build ulang dengan PyInstaller 6.16.0** (pinned) yang menghasilkan
+  layout klasik.
+
+### Perubahan
+
+- **`installer/ipan_optimizer.spec`**: tidak berubah (sudah benar). Hanya
+  build tool yang harus 6.16.
+- **`.venv/pyvenv.cfg`**: diperbaiki — `home`/`executable` menunjuk ke
+  `C:\Python312` (base Python pindah setelah install ulang). Sebelumnya venv
+  rusak (tidak bisa dipakai).
+- **`scripts/smoke_pywebview.py`**: kembalikan `# noqa: S310` / `# noqa: S603`
+  (dihapus di working tree 8/5; tanpa itu `ruff` 0.14.2 pinned gagal di 2
+  lokasi).
+- **`AGENTS.md`**: tambah section "Packaging build (release EXE)" — wajib pakai
+  PyInstaller 6.16.0, jangan 6.21+, plus panduan perbaiki venv setelah reinstall.
+- **`dist_new/Ipan AppSettinX V1.exe`**: diganti build 6.16.0 (16,890,029
+  bytes) yang jalan normal. `.gitignore` sudah menutup `dist_new/`.
+
+### Verifikasi
+
+- Build 6.16.0: `SizeOfImage=0x59000`, `DllChars=0xc160` (ASLR ON),
+  `TimeDateStamp` real, layout klasik — identik dengan EXE Downloads yang
+  berfungsi.
+- Run normal: stabil 20 detik, `Responding=True`, mem ~102 MB (WebView2
+  loaded, 2 proses).
+- `--no-window` exit 0.
+- Gates (venv pinned): `ruff format --check` ✓, `ruff check` ✓, `mypy src` ✓,
+  `pytest` = 103 passed, 4 deselected, 1 failed pre-existing
+  (`test_emulator_tweak_executes_real_operations` — host tidak punya
+  BlueStacks), `check_control_matrix` (58), `check_frontend_policy`,
+  `check_asset_budget` ✓.
+
 ## 2026-08-05 — Commit pekerjaan 8/3 (EXE 16 MB + optimasi)
 
 **Status:** Selesai. Seluruh perubahan 8/3 (perkecil EXE 220→16 MB,

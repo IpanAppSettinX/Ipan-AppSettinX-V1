@@ -25,7 +25,7 @@ def wait_for_cdp(port: int, timeout: float = 25.0) -> None:
     url = f"http://127.0.0.1:{port}/json/version"
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(url, timeout=1) as response:
+            with urllib.request.urlopen(url, timeout=1) as response:  # noqa: S310 - loopback CDP endpoint only
                 if response.status == 200:
                     return
         except OSError:
@@ -40,7 +40,7 @@ def main() -> int:
     environment = os.environ.copy()
     environment["IPAN_OPTIMIZER_DATA_DIR"] = str(artifacts / "data")
     environment["IPAN_OPTIMIZER_REMOTE_DEBUGGING_PORT"] = str(port)
-    process = subprocess.Popen(
+    process = subprocess.Popen(  # noqa: S603 - trusted local dev subprocess
         [sys.executable, "-m", "ipan_optimizer.main", "--debug"],
         cwd=ROOT,
         env=environment,
