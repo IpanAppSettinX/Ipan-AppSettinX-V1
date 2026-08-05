@@ -31,17 +31,19 @@ The following production behaviours intentionally override the default safety
 contract above. They are confined to the packaged release EXE and installer,
 never to test runs, and each carries a documented mitigation.
 
-1. **Auto-elevation of the main EXE.** `installer/main.manifest` declares
-   `level="requireAdministrator"` so the app always runs elevated. This is
-   required so HKLM/`sc config`/`powercfg`/`bcdedit` tweaks that were wired in
-   the previous session can apply without asking the user to right-click
-   "Run as administrator". **Implementation note:** the PyInstaller spec must
-   also pass `uac_admin=True` to `EXE(...)` — the `manifest=path` argument
-   alone does NOT override the bootloader's default `asInvoker` execution
-   level in the embedded RT_MANIFEST resource. Mitigation: tests never execute
-   those tweaks; the Dry Run overlay remains the default backend in
-   development; the privileged helper (`helper.spec`) is still a separate
-   binary with its own manifest and signed-plan validation boundary.
+1. **`asInvoker` execution level (was `requireAdministrator`).** The
+   release EXE runs as the invoking user; elevation is requested on demand
+   via `ShellExecute "runas"` from Python when an operation needs HKLM/`sc
+   config`/`powercfg`/`bcdedit`. Rationale: `requireAdministrator` +
+   PE timestamp 1970 (PyInstaller default) triggered Windows
+   `apphelp.dll` injection → Control Flow Guard trap → silent crash
+   (`0xc0000005`) on Windows 10 19045 and several custom/modified Windows
+   builds (Ghost Spectre with UAC disabled, ReviOS, tiny11 Core, XLite).
+   `asInvoker` keeps the bootloader compatible with UAC-disabled hosts and
+   avoids PCA shim injection. Mitigation: tests never execute privileged
+   tweaks; the Dry Run overlay remains the default backend in development;
+   the privileged helper (`helper.spec`) is still a separate binary with
+   its own manifest and signed-plan validation boundary.
 2. **Automatic WebView2 runtime install.** When the Microsoft Edge WebView2
    Runtime is missing, the app launches the official Microsoft bootstrapper
    (`MicrosoftEdgeWebview2Setup.exe`) bundled under

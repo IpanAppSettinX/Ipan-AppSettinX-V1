@@ -42,6 +42,11 @@ _EFF_FREQ_MAX_RATIO = 2.0
 # SSD temperature changes slowly; querying Storage every tick is wasted work.
 _SSD_REFRESH_TICKS = 5
 
+# Slow sensors (powershell/nvidia-smi) are refreshed by a single background
+# thread on this interval. The foreground read_telemetry() returns the cached
+# values immediately, so the UI loop never blocks on subprocess startup.
+_SLOW_REFRESH_SECONDS = 3.0
+
 
 @dataclass(frozen=True)
 class TelemetrySample:
@@ -244,6 +249,167 @@ class _StorageTempSampler:
         return self._cached
 
 
+class _SlowSensorCache:
+    """Background-refreshed cache for expensive sensor reads.
+
+    Subprocess spawns (powershell, nvidia-smi) take 100-500 ms each on
+    Windows. Running them every UI tick (1 s) pegs the CPU. This cache
+    refreshes them on a single daemon thread every ``_SLOW_REFRESH_SECONDS``
+    and exposes a non-blocking ``read()`` that returns the last snapshot.
+    """
+
+    def __init__(self) -> None:
+        import threading
+
+        self._lock = threading.Lock()
+        self._cached: dict[str, float | str | None] = {
+            "cpu_temp": None,
+            "gpu_temp": None,
+            "gpu_freq": None,
+            "amd_name": "",
+        }
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._refresh_loop, name="slow-sensors", daemon=True)
+        self._thread.start()
+
+    def _refresh_once(self) -> None:
+        import shutil
+
+        powershell = shutil.which("powershell") or "powershell"
+        nvidia_smi = shutil.which("nvidia-smi") or "nvidia-smi"
+        cpu_temp: float | None = None
+        gpu_temp: float | None = None
+        gpu_freq: float | None = None
+        amd_name = ""
+
+        # MSI Afterburner shared memory (no subprocess cost).
+        with contextlib.suppress(Exception):
+            entries = _PROVIDERS.mahm.read()
+            gpu_temp = pick_sensor(entries, _MAHM_ID_GPU_TEMP)
+            gpu_freq = pick_sensor(entries, _MAHM_ID_GPU_CLOCK)
+            cpu_temp = pick_sensor(entries, _MAHM_ID_CPU_TEMP)
+
+        # nvidia-smi only when MAHM did not provide GPU clock.
+        if gpu_freq is None:
+            with contextlib.suppress(Exception):
+                import subprocess
+
+                result = subprocess.run(  # noqa: S603
+                    [
+                        nvidia_smi,
+                        "--query-gpu=clocks.current.graphics,temperature.gpu",
+                        "--format=csv,noheader,nounits",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=3,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    parts = result.stdout.strip().split("\n")[0].split(",")
+                    if parts[0].strip():
+                        gpu_freq = float(parts[0].strip())
+                    if gpu_temp is None and len(parts) >= 2 and parts[1].strip():
+                        gpu_temp = float(parts[1].strip())
+
+        # AMD name detection (cheap CIM call, cached).
+        with contextlib.suppress(Exception):
+            import subprocess
+
+            amd_result = subprocess.run(  # noqa: S603
+                [
+                    powershell,
+                    "-NoProfile",
+                    "-Command",
+                    "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                creationflags=0x08000000,
+            )
+            if amd_result.returncode == 0 and amd_result.stdout.strip():
+                amd_name = amd_result.stdout.strip().lower()
+
+        # CPU temperature via MSAcpi_ThermalZoneTemperature.
+        if cpu_temp is None:
+            with contextlib.suppress(Exception):
+                import subprocess
+
+                result = subprocess.run(  # noqa: S603
+                    [
+                        powershell,
+                        "-NoProfile",
+                        "-Command",
+                        "Get-CimInstance -Namespace root/wmi -ClassName "
+                        "MSAcpi_ThermalZoneTemperature | "
+                        "Select-Object -ExpandProperty CurrentTemperature | "
+                        "Select-Object -First 1",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    creationflags=0x08000000,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    raw = float(result.stdout.strip())
+                    cpu_temp = raw / 10.0 - 273.15
+                    if cpu_temp < 0 or cpu_temp > 150:
+                        cpu_temp = None
+
+        # OpenHardwareMonitor / LibreHardwareMonitor fallback.
+        if cpu_temp is None or gpu_temp is None:
+            with contextlib.suppress(Exception):
+                import json
+                import subprocess
+
+                result = subprocess.run(  # noqa: S603
+                    [
+                        powershell,
+                        "-NoProfile",
+                        "-Command",
+                        "Get-CimInstance -Namespace root/OpenHardwareMonitor -ClassName Sensor "
+                        "| Where-Object {$_.SensorType -eq 'Temperature'} | "
+                        "Select-Object Name,Value | ConvertTo-Json",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    creationflags=0x08000000,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    try:
+                        sensors = json.loads(result.stdout)
+                        if not isinstance(sensors, list):
+                            sensors = [sensors]
+                        for s in sensors:
+                            name = str(s.get("Name", "")).lower()
+                            val = float(s.get("Value", 0))
+                            if "cpu" in name and cpu_temp is None and val > 0:
+                                cpu_temp = val
+                            elif (
+                                ("gpu" in name or "video" in name) and gpu_temp is None and val > 0
+                            ):
+                                gpu_temp = val
+                    except (json.JSONDecodeError, ValueError):
+                        pass
+
+        with self._lock:
+            self._cached["cpu_temp"] = cpu_temp
+            self._cached["gpu_temp"] = gpu_temp
+            self._cached["gpu_freq"] = gpu_freq
+            self._cached["amd_name"] = amd_name
+
+    def _refresh_loop(self) -> None:
+        while not self._stop.is_set():
+            with contextlib.suppress(Exception):
+                self._refresh_once()
+            self._stop.wait(_SLOW_REFRESH_SECONDS)
+
+    def read(self) -> dict[str, float | str | None]:
+        with self._lock:
+            return dict(self._cached)
+
+
 def pick_sensor(entries: dict[str, float], entry_id: str) -> float | None:
     """Return a positive sensor value from parsed MAHM entries, else ``None``."""
     value = entries.get(entry_id)
@@ -259,6 +425,7 @@ class _TelemetryProviders:
         self._mahm: _MahmReader | None = None
         self._pdh: _PdhCpuSampler | None = None
         self._storage: _StorageTempSampler | None = None
+        self._slow: _SlowSensorCache | None = None
         self._pdh_broken = False
         self._storage_broken = False
 
@@ -286,12 +453,24 @@ class _TelemetryProviders:
                 self._storage_broken = True
         return self._storage
 
+    @property
+    def slow(self) -> _SlowSensorCache | None:
+        if self._slow is None:
+            with contextlib.suppress(Exception):
+                self._slow = _SlowSensorCache()
+        return self._slow
+
 
 _PROVIDERS = _TelemetryProviders()
 
 
 def read_telemetry() -> TelemetrySample:
-    """Collect one read-only telemetry snapshot from every available source."""
+    """Collect one read-only telemetry snapshot from every available source.
+
+    Fast path: PDH counters, psutil RAM, and the cached slow-sensor values.
+    No subprocess is spawned on this call path; the background daemon thread
+    refreshes temperatures and GPU clock every few seconds.
+    """
     cpu_load: float | None = None
     cpu_freq: float | None = None
     gpu_freq: float | None = None
@@ -308,120 +487,20 @@ def read_telemetry() -> TelemetrySample:
         except Exception:
             _PROVIDERS._pdh_broken = True
 
-    with contextlib.suppress(Exception):
-        entries = _PROVIDERS.mahm.read()
-        gpu_temp = pick_sensor(entries, _MAHM_ID_GPU_TEMP)
-        gpu_freq = pick_sensor(entries, _MAHM_ID_GPU_CLOCK)
-        cpu_temp = pick_sensor(entries, _MAHM_ID_CPU_TEMP)
-
-    if gpu_freq is None:
+    # Slow sensors: non-blocking read of background cache.
+    slow = _PROVIDERS.slow
+    if slow is not None:
         with contextlib.suppress(Exception):
-            import subprocess
-
-            result = subprocess.run(
-                [  # noqa: S607
-                    "nvidia-smi",
-                    "--query-gpu=clocks.current.graphics,temperature.gpu",
-                    "--format=csv,noheader,nounits",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=3,
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                parts = result.stdout.strip().split("\n")[0].split(",")
-                gpu_freq = float(parts[0].strip()) if parts[0].strip() else None
-                if gpu_temp is None and len(parts) >= 2 and parts[1].strip():
-                    gpu_temp = float(parts[1].strip())
-
-    # AMD GPU fallback: detect the GPU name via CIM so AMD systems at least
-    # surface a readable identifier. Clock/temp metrics remain None when no
-    # driver-level API exposes them; fields stay null gracefully.
-    with contextlib.suppress(Exception):
-        import subprocess
-
-        _amd_result = subprocess.run(
-            [  # noqa: S607
-                "powershell",
-                "-NoProfile",
-                "-Command",
-                "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            creationflags=0x08000000,
-        )
-        if _amd_result.returncode == 0 and _amd_result.stdout.strip():
-            _amd_names = _amd_result.stdout.strip().lower()
-            if "amd" in _amd_names or "radeon" in _amd_names:
-                # No reliable clock/temp without ADL; leave metrics as None.
-                pass
-
-    # CPU temperature fallback: MSAcpi_ThermalZoneTemperature reports a
-    # motherboard/near-CPU temperature in tenths of Kelvin. Approximate but
-    # useful when Afterburner is unavailable.
-    if cpu_temp is None:
-        with contextlib.suppress(Exception):
-            import subprocess
-
-            result = subprocess.run(
-                [  # noqa: S607
-                    "powershell",
-                    "-NoProfile",
-                    "-Command",
-                    "Get-CimInstance -Namespace root/wmi -ClassName "
-                    "MSAcpi_ThermalZoneTemperature | "
-                    "Select-Object -ExpandProperty CurrentTemperature | "
-                    "Select-Object -First 1",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=5,
-                creationflags=0x08000000,
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                raw = float(result.stdout.strip())
-                # MSAcpi reports in tenths of Kelvin.
-                cpu_temp = raw / 10.0 - 273.15
-                if cpu_temp < 0 or cpu_temp > 150:
-                    cpu_temp = None
-
-    # OpenHardwareMonitor / LibreHardwareMonitor fallback: when running, it
-    # exposes a WMI namespace with named Temperature sensors for CPU and GPU.
-    if cpu_temp is None or gpu_temp is None:
-        with contextlib.suppress(Exception):
-            import json
-            import subprocess
-
-            result = subprocess.run(
-                [  # noqa: S607
-                    "powershell",
-                    "-NoProfile",
-                    "-Command",
-                    "Get-CimInstance -Namespace root/OpenHardwareMonitor -ClassName Sensor "
-                    "| Where-Object {$_.SensorType -eq 'Temperature'} | "
-                    "Select-Object Name,Value | ConvertTo-Json",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=5,
-                creationflags=0x08000000,
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                try:
-                    sensors = json.loads(result.stdout)
-                    if not isinstance(sensors, list):
-                        sensors = [sensors]
-                    for s in sensors:
-                        name = str(s.get("Name", "")).lower()
-                        val = float(s.get("Value", 0))
-                        if "cpu" in name and cpu_temp is None and val > 0:
-                            cpu_temp = val
-                        elif ("gpu" in name or "video" in name) and gpu_temp is None and val > 0:
-                            gpu_temp = val
-                except (json.JSONDecodeError, ValueError):
-                    pass
+            cached = slow.read()
+            cpu_val = cached.get("cpu_temp")
+            if isinstance(cpu_val, (int, float)):
+                cpu_temp = float(cpu_val)
+            gpu_val = cached.get("gpu_temp")
+            if isinstance(gpu_val, (int, float)):
+                gpu_temp = float(gpu_val)
+            freq_val = cached.get("gpu_freq")
+            if isinstance(freq_val, (int, float)):
+                gpu_freq = float(freq_val)
 
     storage = _PROVIDERS.storage
     if storage is not None:

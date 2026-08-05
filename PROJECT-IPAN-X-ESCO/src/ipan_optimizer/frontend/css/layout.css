@@ -66,7 +66,7 @@
 .startup-ring-1 {
   width: 150px;
   height: 150px;
-  animation: startup-spin 12s linear infinite;
+  animation: startup-spin 7s linear infinite;
 }
 
 .startup-ring-1 circle {
@@ -78,7 +78,7 @@
 .startup-ring-2 {
   width: 118px;
   height: 118px;
-  animation: startup-spin-reverse 7s linear infinite;
+  animation: startup-spin-reverse 4.5s linear infinite;
 }
 
 .startup-ring-2 circle {
@@ -90,7 +90,7 @@
 .startup-ring-3 {
   width: 88px;
   height: 88px;
-  animation: startup-spin 4.5s linear infinite;
+  animation: startup-spin 3s linear infinite;
 }
 
 .startup-ring-3 circle {

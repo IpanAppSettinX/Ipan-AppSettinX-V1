@@ -19,7 +19,9 @@ htmlcov/
 
 # Build artifacts
 build/
+build_new/
 dist/
+dist_new/
 *.spec.bak
 artifacts/
 playwright-report/

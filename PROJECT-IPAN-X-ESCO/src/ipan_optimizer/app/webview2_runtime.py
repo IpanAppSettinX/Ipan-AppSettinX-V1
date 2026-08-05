@@ -56,6 +56,19 @@ WEBVIEW2_STAGING_VERSION = "0.0.0.0"  # noqa: S104 - sentinel version string, no
 # license notes.
 WEBVIEW2_BOOTSTRAPPER_NAME = "MicrosoftEdgeWebview2Setup.exe"
 
+# Standalone offline installer (~200 MB). Microsoft ships this as
+# ``MicrosoftEdgeWebView2RuntimeInstallerX64.exe``. Unlike the bootstrapper it
+# embeds the full runtime and does not require an internet connection. Used as
+# fallback when the bootstrapper cannot reach Microsoft CDN (Windows mod with
+# stripped Windows Update / edgeupdate) and no Fixed Version runtime is bundled.
+WEBVIEW2_STANDALONE_INSTALLER_NAME = "MicrosoftEdgeWebView2RuntimeInstallerX64.exe"
+
+# Fixed Version runtime folder name. When the developer extracts a Fixed
+# Version Runtime package into ``src/ipan_optimizer/data/webview2_fixed/``,
+# the app points pywebview at it via ``WEBVIEW2_RUNTIME_PATH`` and skips
+# system detection entirely. Fully portable, no installer, no admin.
+WEBVIEW2_FIXED_DIR_NAME = "webview2_fixed"
+
 
 def _read_registry_pv(hive: int, key_path: str, view: int) -> str | None:
     """Read the ``pv`` value of an EdgeUpdate client key.
@@ -130,6 +143,37 @@ def bootstrapper_path(bundle_root: Path | None = None) -> Path:
     return Path(__file__).resolve().parent.parent / "data" / WEBVIEW2_BOOTSTRAPPER_NAME
 
 
+def _data_dir(bundle_root: Path | None = None) -> Path:
+    """Resolve the bundled ``data`` directory (PyInstaller or dev mode)."""
+    if bundle_root is not None:
+        return bundle_root
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        return Path(meipass) / "ipan_optimizer" / "data"
+    return Path(__file__).resolve().parent.parent / "data"
+
+
+def standalone_installer_path(bundle_root: Path | None = None) -> Path:
+    """Return the expected path of the bundled offline WebView2 installer."""
+    return _data_dir(bundle_root) / WEBVIEW2_STANDALONE_INSTALLER_NAME
+
+
+def fixed_runtime_path(bundle_root: Path | None = None) -> Path:
+    """Return the expected path of the bundled Fixed Version runtime folder.
+
+    Returns a Path that may not exist. Callers must check ``is_dir()`` before
+    using it. When the folder exists and contains ``msedgewebview2.exe``, the
+    app sets ``WEBVIEW2_RUNTIME_PATH`` to it and skips system install.
+    """
+    return _data_dir(bundle_root) / WEBVIEW2_FIXED_DIR_NAME
+
+
+def fixed_runtime_available(bundle_root: Path | None = None) -> bool:
+    """Return ``True`` when the bundled Fixed Version runtime is usable."""
+    path = fixed_runtime_path(bundle_root)
+    return path.is_dir() and (path / "msedgewebview2.exe").is_file()
+
+
 def install_webview2(
     *,
     exe_path: Path,
@@ -176,32 +220,44 @@ def ensure_webview2(
     bundle_root: Path | None = None,
     headless: bool = False,
 ) -> bool:
-    """Ensure the WebView2 runtime is installed before the UI starts.
+    """Ensure the WebView2 runtime is available before the UI starts.
 
-    Steps:
-    1. If ``is_webview2_installed`` is ``True``, return ``True`` immediately.
-    2. Otherwise locate the bundled bootstrapper and launch it (non-silent).
-    3. After the bootstrapper exits, re-check detection.
+    Resolution order:
+    1. Bundled Fixed Version runtime (``data/webview2_fixed/``). When present,
+       the caller sets ``WEBVIEW2_RUNTIME_PATH`` to it and we return ``True``
+       without touching the system install. Fully portable, no admin.
+    2. System Evergreen install (registry detection).
+    3. Bundled offline installer (``MicrosoftEdgeWebView2RuntimeInstallerX64.exe``).
+       Launched with its default UI so the user sees the Microsoft installer.
+    4. Bundled bootstrapper (``MicrosoftEdgeWebview2Setup.exe``). Smaller but
+       requires an internet connection to the Microsoft CDN.
 
-    Returns ``True`` when the runtime is present at the end, ``False``
-    otherwise.
-
-    When ``headless`` is ``True`` (e.g. ``--no-window`` smoke tests or
-    non-Windows CI), the function only performs detection and never launches
-    the bootstrapper. This keeps packaging smoke tests safe.
+    Returns ``True`` when a usable runtime is available at the end. When
+    ``headless`` is ``True`` (smoke tests / non-Windows CI), only detection is
+    performed and no installer is ever launched.
     """
+    if fixed_runtime_available(bundle_root):
+        return True
     if is_webview2_installed(reader=reader):
         return True
     if headless:
         return False
     if sys.platform != "win32":
         return False
+    # Prefer the offline standalone installer (works without internet / WU).
+    standalone = standalone_installer_path(bundle_root)
+    if standalone.is_file():
+        try:
+            exit_code = install_webview2(exe_path=standalone, runner=runner)
+        except FileNotFoundError:
+            exit_code = -1
+        if exit_code == 0 and is_webview2_installed(reader=reader):
+            return True
+    # Fall back to the small bootstrapper (needs internet).
     exe = bootstrapper_path(bundle_root)
     try:
         exit_code = install_webview2(exe_path=exe, runner=runner)
     except FileNotFoundError:
-        # Bootstrapper not bundled. Surface the problem to the caller; we do
-        # not silently download anything.
         return False
     if exit_code != 0:
         return False

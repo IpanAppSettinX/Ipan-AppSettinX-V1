@@ -118,9 +118,52 @@ def ensure_runtime_requirements(*, headless: bool) -> bool:
     In ``--no-window`` mode this only performs a non-invasive detection check
     and never launches the bootstrapper.
     """
-    from ipan_optimizer.app.webview2_runtime import ensure_webview2
+    from ipan_optimizer.app.webview2_runtime import (
+        ensure_webview2,
+        fixed_runtime_available,
+        fixed_runtime_path,
+    )
+
+    # When the developer bundles a Fixed Version Runtime, point pywebview at
+    # it before any window is created. This skips system detection entirely
+    # and works on Windows mod where Evergreen runtime is unavailable.
+    if fixed_runtime_available():
+        import webview
+
+        webview.settings["WEBVIEW2_RUNTIME_PATH"] = str(fixed_runtime_path())
+        _grant_appcontainer_access(fixed_runtime_path())
+        return True
 
     return ensure_webview2(headless=headless)
+
+
+def _grant_appcontainer_access(runtime_dir: Path) -> None:
+    """Grant AppContainer SIDs read access to the bundled Fixed Version runtime.
+
+    WebView2 renderer runs under an AppContainer and needs read access to the
+    runtime folder. On Windows 10 (Fixed Version 120+) this ACL entry is
+    required; without it the renderer fails to initialise silently. This is a
+    no-op on non-Windows or when icacls is unavailable.
+    """
+    if sys.platform != "win32":
+        return
+    import contextlib
+    import shutil
+    import subprocess
+
+    for sid in ("*S-1-15-2-2", "*S-1-15-2-1"):
+        with contextlib.suppress(FileNotFoundError, OSError):
+            subprocess.run(  # noqa: S603 - icacls is a signed Windows system binary
+                [
+                    shutil.which("icacls") or "icacls",
+                    str(runtime_dir),
+                    "/grant",
+                    f"{sid}:(OI)(CI)(RX)",
+                ],
+                check=False,
+                shell=False,
+                capture_output=True,
+            )
 
 
 def main() -> int:

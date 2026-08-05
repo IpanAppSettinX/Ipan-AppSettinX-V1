@@ -168,17 +168,8 @@ function setProcessProgress(value, message = null) {
 }
 
 function syncPhaseDial(activeStep, terminalState = null) {
-  const dial = document.querySelector(".phase-dial");
-  const order = ["check", "snapshot", "apply", "verify"];
-  const activeIndex = order.indexOf(activeStep);
-  if (dial && terminalState !== "complete") dial.dataset.phase = activeStep;
-  for (const node of document.querySelectorAll(".phase-node")) {
-    const nodeIndex = order.indexOf(node.dataset.processStep);
-    if (terminalState === "complete") node.dataset.state = "done";
-    else if (nodeIndex < activeIndex) node.dataset.state = "done";
-    else if (nodeIndex === activeIndex) node.dataset.state = "active";
-    else node.dataset.state = "pending";
-  }
+  // Phase dial ring removed; terminal-style visual uses data-state on dialog.
+  // Kept as no-op so existing call sites stay intact.
 }
 
 async function animateProcessProgress(target, duration, message) {
@@ -572,6 +563,7 @@ function startTelemetry() {
   if (state.rtInterval) clearInterval(state.rtInterval);
   state.rtInterval = setInterval(async () => {
     if (document.querySelector('[data-view="scan"]').hidden) return;
+    if (document.hidden) return;
     try {
       const rt = await invoke("get_realtime_stats");
       const cpuSpeed = (rt.cpu_freq_mhz != null && rt.cpu_freq_mhz > 0) ? rt.cpu_freq_mhz / 1000 : null;
@@ -607,7 +599,7 @@ function startTelemetry() {
     } catch (err) {
       console.error("RT Error:", err);
     }
-  }, 1000);
+  }, 2500);
 }
 
 function updateTelemetry(key, value, suffix) {
@@ -635,6 +627,9 @@ function updateTelemetry(key, value, suffix) {
 function drawTelemetryChart(canvasId, data, color, minValue, maxValue, dynamicRange = false) {
   const canvas = document.getElementById(canvasId);
   if (!canvas) return;
+  // Coalesce multiple chart redraws per telemetry tick into a single rAF.
+  if (canvas._pendingFrame) return;
+  canvas._pendingFrame = true;
   const ctx = canvas.getContext("2d");
   const width = canvas.width;
   const height = canvas.height;
@@ -720,6 +715,7 @@ function drawTelemetryChart(canvasId, data, color, minValue, maxValue, dynamicRa
     ctx.lineWidth = 1;
     ctx.stroke();
   }
+  canvas._pendingFrame = false;
 }
 
 async function handleTweakAction(control) {
@@ -1464,9 +1460,9 @@ const HW_TERMINAL_SCRIPT = [
   ["auth", "License handshake .......................", "wait"],
 ];
 
-const HW_WORD_MS = 2200;
-const HW_STATUS_PAUSE_MS = 1800;
-const HW_LINE_PAUSE_MS = 3200;
+const HW_WORD_MS = 600;
+const HW_STATUS_PAUSE_MS = 500;
+const HW_LINE_PAUSE_MS = 900;
 
 async function typeHardwareWords(element, value) {
   const words = value.match(/\S+\s*/g) || [];

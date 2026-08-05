@@ -1174,117 +1174,128 @@ dialog::backdrop {
 .apply-process-visual {
   position: relative;
   display: grid;
-  width: 120px;
-  height: 120px;
+  width: 280px;
   margin-bottom: 18px;
-  place-items: center;
 }
 
-.phase-dial {
-  position: absolute;
-  width: 120px;
-  height: 120px;
+/* ── Process terminal (hacker-style, no ring) ── */
+.process-terminal {
+  position: relative;
+  display: grid;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-void);
+  box-shadow:
+    inset 0 0 0 1px rgb(0 0 0 / 60%),
+    0 0 0 1px var(--color-bg-canvas),
+    var(--shadow-md);
+  font-family: "Bahnschrift", "Segoe UI Variable", "Segoe UI", monospace;
+  overflow: hidden;
 }
 
-.phase-dial-track {
-  position: absolute;
-  inset: 0;
-  border: 1px solid var(--color-border);
-  border-radius: 50%;
+.process-terminal-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-1);
 }
 
-.phase-dial-pointer {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 52px;
-  height: 2px;
-  margin-top: -1px;
-  background: var(--color-accent);
-  box-shadow: 0 0 8px var(--color-accent);
-  transform: rotate(-90deg);
-  transform-origin: 0 50%;
-  transition: transform 380ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-.phase-dial[data-phase="check"] .phase-dial-pointer {
-  transform: rotate(-90deg);
-}
-
-.phase-dial[data-phase="snapshot"] .phase-dial-pointer {
-  transform: rotate(0deg);
-}
-
-.phase-dial[data-phase="apply"] .phase-dial-pointer {
-  transform: rotate(90deg);
-}
-
-.phase-dial[data-phase="verify"] .phase-dial-pointer {
-  transform: rotate(180deg);
-}
-
-.phase-node {
-  position: absolute;
-  width: 9px;
-  height: 9px;
+.process-terminal-dot {
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--color-border-strong);
-  transition: background 220ms ease, box-shadow 220ms ease, transform 220ms ease;
 }
 
-.phase-node[data-process-step="check"] {
-  top: 0;
-  left: 50%;
-  margin: -4.5px 0 0 -4.5px;
+.process-terminal-dot:nth-child(1) {
+  background: var(--color-danger);
 }
 
-.phase-node[data-process-step="snapshot"] {
-  top: 50%;
-  right: 0;
-  margin: -4.5px -4.5px 0 0;
+.process-terminal-dot:nth-child(2) {
+  background: var(--color-warning);
 }
 
-.phase-node[data-process-step="apply"] {
-  bottom: 0;
-  left: 50%;
-  margin: 0 0 -4.5px -4.5px;
-}
-
-.phase-node[data-process-step="verify"] {
-  top: 50%;
-  left: 0;
-  margin: -4.5px 0 0 -4.5px;
-}
-
-.phase-node[data-state="active"] {
-  background: var(--color-accent);
-  box-shadow: 0 0 10px var(--color-accent);
-  transform: scale(1.35);
-}
-
-.phase-node[data-state="done"] {
+.process-terminal-dot:nth-child(3) {
   background: var(--color-success);
 }
 
-.phase-node[data-state="skipped"] {
-  background: var(--color-danger-muted);
+.process-terminal-title {
+  margin-left: 8px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
-.process-core {
-  z-index: 1;
+.process-terminal-body {
+  position: relative;
   display: grid;
-  width: 44px;
-  height: 44px;
+  height: 64px;
+  place-items: center;
+  background: var(--color-bg-void);
+}
+
+.process-terminal-foot {
+  display: grid;
+  padding: 6px 12px 8px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface-1);
+  min-height: 28px;
+}
+
+.process-terminal-cursor {
+  display: inline-block;
+  width: 7px;
+  height: 13px;
+  background: var(--color-accent);
+  box-shadow: 0 0 6px var(--color-accent);
+  animation: cursor-blink 1s steps(2, start) infinite;
+}
+
+/* Core "IPX" badge inside terminal body */
+.process-core {
+  position: relative;
+  display: grid;
+  width: 64px;
+  height: 28px;
   place-items: center;
   border: 1px solid var(--color-accent);
-  border-radius: 50%;
+  border-radius: var(--radius-xs);
   background: var(--color-accent-muted);
   color: var(--color-accent-bright);
-  font-family: "Bahnschrift", "Segoe UI Variable", "Segoe UI", sans-serif;
-  font-size: 13px;
+  font-family: "Bahnschrift", "Segoe UI Variable", "Segoe UI", monospace;
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.08em;
-  box-shadow: var(--shadow-accent);
+  letter-spacing: 0.18em;
+  box-shadow:
+    0 0 0 1px var(--color-bg-void),
+    0 0 14px rgb(232 90 81 / 35%);
+  transition:
+    border-color 260ms ease,
+    background 260ms ease,
+    color 260ms ease,
+    box-shadow 260ms ease,
+    width 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* Scan line sweep across terminal body */
+.process-terminal-body::after {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: var(--color-accent);
+  height: 1px;
+  width: 100%;
+  opacity: 0.18;
+  content: "";
+  pointer-events: none;
+  transform: translateY(0);
+}
+
+.apply-process-dialog[data-state="running"] .process-terminal-body::after {
+  animation: terminal-scan 1.6s linear infinite;
 }
 
 .apply-process-dialog[data-state="running"] .process-core {
@@ -1292,17 +1303,33 @@ dialog::backdrop {
 }
 
 .apply-process-dialog[data-state="success"] .process-core {
+  width: 96px;
   border-color: var(--color-success);
   background: var(--color-success-muted);
   color: var(--color-success);
-  box-shadow: none;
+  box-shadow:
+    0 0 0 1px var(--color-bg-void),
+    0 0 18px rgb(34 197 94 / 40%);
+  animation: core-success-enter 420ms cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+}
+
+.apply-process-dialog[data-state="success"] .process-terminal-body::after {
+  background: var(--color-success);
+  opacity: 0.25;
+  animation: terminal-scan-fade 600ms ease-out forwards;
 }
 
 .apply-process-dialog[data-state="blocked"] .process-core {
   border-color: var(--color-warning);
   background: var(--color-warning-muted);
   color: var(--color-warning);
-  box-shadow: none;
+  box-shadow: 0 0 14px rgb(245 158 11 / 35%);
+  animation: process-core-shake 360ms ease-in-out;
+}
+
+.apply-process-dialog[data-state="blocked"] .process-terminal-body::after {
+  background: var(--color-warning);
+  opacity: 0.25;
 }
 
 .apply-process-dialog h2 {
@@ -1412,18 +1439,68 @@ dialog::backdrop {
 @keyframes process-core-breathe {
   50% {
     border-color: var(--color-accent-bright);
-    transform: scale(1.05);
+    transform: scale(1.04);
+  }
+}
+
+@keyframes core-success-enter {
+  0% {
+    transform: scale(0.7);
+    letter-spacing: 0.4em;
+  }
+  60% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+    letter-spacing: 0.18em;
+  }
+}
+
+@keyframes process-core-shake {
+  20%,
+  60% {
+    transform: translateX(-3px);
+  }
+  40%,
+  80% {
+    transform: translateX(3px);
+  }
+}
+
+@keyframes cursor-blink {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes terminal-scan {
+  0% {
+    transform: translateY(0);
+    opacity: 0.05;
+  }
+  50% {
+    opacity: 0.3;
+  }
+  100% {
+    transform: translateY(64px);
+    opacity: 0;
+  }
+}
+
+@keyframes terminal-scan-fade {
+  to {
+    opacity: 0;
+    transform: translateY(0);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .apply-process-dialog[data-state="running"] .process-core {
+  .apply-process-dialog[data-state="running"] .process-core,
+  .apply-process-dialog[data-state="running"] .process-terminal-body::after,
+  .apply-process-dialog[data-state="success"] .process-core,
+  .process-terminal-cursor {
     animation: none;
-  }
-
-  .phase-dial-pointer,
-  .phase-node {
-    transition: none;
   }
 
   .process-progress span {

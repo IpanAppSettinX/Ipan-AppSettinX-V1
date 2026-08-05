@@ -646,15 +646,20 @@
 
     <dialog id="apply-process-dialog" class="apply-process-dialog" aria-labelledby="apply-process-title">
       <div class="apply-process-visual" aria-hidden="true">
-        <div class="phase-dial" data-phase="check">
-          <div class="phase-dial-track"></div>
-          <div class="phase-dial-pointer"></div>
-          <div class="phase-node" data-process-step="check"></div>
-          <div class="phase-node" data-process-step="snapshot"></div>
-          <div class="phase-node" data-process-step="apply"></div>
-          <div class="phase-node" data-process-step="verify"></div>
+        <div class="process-terminal">
+          <div class="process-terminal-head">
+            <span class="process-terminal-dot"></span>
+            <span class="process-terminal-dot"></span>
+            <span class="process-terminal-dot"></span>
+            <span class="process-terminal-title">ipx://apply-engine</span>
+          </div>
+          <div class="process-terminal-body">
+            <span class="process-core">IPX</span>
+          </div>
+          <div class="process-terminal-foot">
+            <span class="process-terminal-cursor"></span>
+          </div>
         </div>
-        <span class="process-core">IPX</span>
       </div>
       <span id="apply-process-kicker" class="eyebrow">APPLY ENGINE</span>
       <h2 id="apply-process-title">Menyiapkan optimasi</h2>

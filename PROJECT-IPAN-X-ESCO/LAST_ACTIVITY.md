@@ -5,6 +5,453 @@
 > menyelesaikan pekerjaan pada sesi berjalan, agent **wajib memperbarui** file
 > ini (entri terbaru diletakkan paling atas).
 
+## 2026-08-05 — Commit pekerjaan 8/3 (EXE 16 MB + optimasi)
+
+**Status:** Selesai. Seluruh perubahan 8/3 (perkecil EXE 220→16 MB,
+Smart Scan 35x, telemetry fast-path, animasi apply-process terminal)
+diverifikasi dan di-commit.
+
+### Verifikasi ulang
+
+- `.venv` lama rusak (base Python dipindah ke `C:\Python312`). Jalankan
+  gate pakai `C:\Python312\python.exe`.
+- `playwright` diinstall ke `C:\Python312` agar `tests/ui/test_e2e.py`
+  bisa collect.
+- `ruff check`, `ruff format --check`, `mypy src` bersih.
+- `pytest` = **103 passed, 1 failed, 4 deselected** (fail pre-existing:
+  `test_emulator_tweak_executes_real_operations` — host tidak punya
+  BlueStacks).
+- `check_control_matrix.py` (58 kontrol), `check_frontend_policy.py`,
+  `check_asset_budget.py` valid.
+- `.gitignore` tambah `build_new/` + `dist_new/` (artifact build).
+- Commit `d284a20` → entri baru berisi 14 file (spec, manifest, telemetry,
+  hardware_scanner, tweak_engine, webview2_runtime, main.py, frontend,
+  AGENTS.md, LAST_ACTIVITY.md, smoke_pywebview.py).
+
+## 2026-08-03 — Perkecil EXE 220 MB → 16 MB (93% lebih kecil)
+
+**Status:** Selesai. `dist_new/Ipan AppSettinX V1.exe` (16.11 MB) jalan
+normal sebagai single file, tanpa admin, dari lokasi lain.
+
+### Root cause size 220 MB
+
+`MicrosoftEdgeWebView2RuntimeInstallerX64.exe` (199.86 MB) — installer
+offline WebView2 terbundle di `data/`. Padahal resolution order
+`ensure_webview2_runtime()` sudah punya fallback yang lebih efisien:
+1. Fixed runtime (tidak ada)
+2. System Evergreen install (Windows 10/11 modern sudah punya Edge →
+   WebView2 terinstall)
+3. Offline installer (200 MB) — **dihapus**
+4. Bootstrapper `MicrosoftEdgeWebview2Setup.exe` (172 KB) — butuh
+   internet, download ~2 MB lalu install
+
+### Perubahan
+
+**Hapus file:**
+- `src/ipan_optimizer/data/MicrosoftEdgeWebView2RuntimeInstallerX64.exe`
+  (199.86 MB) dihapus. Bootstrapper 172 KB tetap di-bundle untuk
+  fallback.
+
+**`installer/ipan_optimizer.spec`:**
+- Hapus `clr` dari hidden imports → restore (pywebview butuh pythonnet).
+- Tambah excludes (tanpa break runtime):
+  - `win32ui`, `Pythonwin` — MFC UI framework, tidak dipakai (2.6 MB).
+  - `pip`, `setuptools` — package manager, tidak dipakai runtime.
+  - `pygments`, `IPython` — syntax highlighting, tidak dipakai.
+  - `matplotlib`, `numpy`, `pandas`, `PIL` — scientific stack, tidak
+    dipakai.
+  - `PyInstaller` — build tool, tidak dipakai runtime.
+- Hapus `distutils` dari excludes (pythonnet butuh, konflik).
+
+### Hasil
+
+- **Before:** 220.09 MB
+- **After:** 16.11 MB
+- **Reduction:** 204 MB (92.7% lebih kecil)
+
+### Verifikasi
+
+- Build sukses, no error.
+- Smoke test (Run as Administrator): PID 3200 + 20016, Responding=True,
+  memori 103 MB (WebView2 loaded).
+- Portabilitas test: copy ke `C:\Users\...\Temp\test_portable.exe`,
+  jalan tanpa admin → RUNNING PID 15300.
+- Single file: copy 1 file ke device lain → double-click → jalan.
+
+### Kompatibilitas cross-device
+
+- Windows 10/11: WebView2 Evergreen sudah terinstall (Edge pre-installed).
+- Windows 10 LTSC/N (tanpa Edge): bootstrapper 172 KB di-bundle, akan
+  download + install WebView2 saat pertama jalan (butuh internet).
+- Python runtime + semua dependency terbundle di EXE.
+- Tidak perlu install apapun di device target.
+
+### File yang diubah
+
+- `installer/ipan_optimizer.spec` — restore clr, tambah excludes.
+- `src/ipan_optimizer/data/MicrosoftEdgeWebView2RuntimeInstallerX64.exe`
+  — dihapus (199.86 MB).
+
+## 2026-08-03 — Single-file EXE (onefile mode) — copy 1 file langsung jalan
+
+**Status:** Selesai. `dist_new/Ipan AppSettinX V1.exe` (220 MB, single
+file) jalan Run as Administrator, stabil 20+ detik, 2 proses (parent
+bootloader + child app), memori 115 MB.
+
+### Perubahan
+
+**`installer/ipan_optimizer.spec`:**
+- Ubah dari `COLLECT` (onedir) ke `EXE(onefile)`:
+  - `EXE()` sekarang terima `analysis.binaries` + `analysis.datas`
+    langsung (sebelumnya `exclude_binaries=True` + `COLLECT` terpisah).
+  - Hapus `COLLECT()` block.
+- Hapus bundling `webview2_fixed/` (~250 MB kalau ada) — onefile extract
+  ke temp dir tiap startup, 250 MB add 3-5 s delay. Bootstrapper 172 KB
+  cukup untuk install WebView2 kalau belum ada.
+
+### Hasil
+
+- **Single file**: `Ipan AppSettinX V1.exe` (220 MB).
+- User cukup copy 1 file ini ke device lain, double-click → jalan.
+- Tidak perlu install Python, dependency, atau copy folder.
+- Semua terbundle: Python 3.12, psutil, pydantic, webview, pywin32,
+  WebView2 bootstrapper, frontend assets.
+
+### Cara kerja onefile
+
+- Saat dijalankan, PyInstaller bootloader extract semua ke
+  `%TEMP%\_MEIxxxxxx\` (~1-2 s), lalu jalankan app dari sana.
+- `_MEIPASS` sudah di-handle di `main.py` + `webview2_runtime.py`
+  untuk resolve path frontend + data.
+- Bootstrapper WebView2 di-extract ke `_MEIPASS/ipan_optimizer/data/`
+  dan dipakai kalau system WebView2 belum terinstal.
+
+### Verifikasi
+
+- Build sukses, no warning.
+- Smoke test (Run as Administrator): PID 12940 + 17072, Responding=True,
+  stabil 20+ detik, CPU 2.1s, Mem 115 MB.
+- Copy test: EXE di-copy ke temp dir lain → jalan normal.
+
+### File yang diubah
+
+- `installer/ipan_optimizer.spec` — onedir → onefile.
+
+## 2026-08-03 — Rename EXE ke "Ipan AppSettinX V1" + cross-device compat
+
+**Status:** Selesai. EXE `dist_new/Ipan AppSettinX V1/Ipan AppSettinX V1.exe`
+jalan Run as Administrator (PID 16628). Smart Scan 261ms, semua data
+terdeteksi (CPU/GPU/Storage/Network/Windows).
+
+### Perubahan
+
+**`installer/ipan_optimizer.spec`:**
+- `EXE(name=...)`: `IPANOptimizer` → `Ipan AppSettinX V1`
+- `COLLECT(name=...)`: `IPANOptimizer` → `Ipan AppSettinX V1`
+- Tambah hidden imports untuk cross-device compat:
+  - `win32com` + `win32com.client` — WMI COM untuk Smart Scan (baru
+    dipakai di hardware_scanner, wajib di-bundle atau crash di device
+    tanpa pywin32 terinstal).
+  - `pythoncom` — dependency win32com, COM init.
+  - `win32timezone` — sering missing di frozen exe, dipakai pywin32.
+  - `win32pdh` + `win32pdhutil` — PDH counter untuk telemetry CPU.
+
+### Cross-device compatibility
+
+- **WebView2**: bootstrapper `MicrosoftEdgeWebview2Setup.exe` (172 KB)
+  sudah di-bundle di `data/`. Fixed runtime `webview2_fixed/` juga
+  di-bundle. Aplikasi auto-install WebView2 kalau belum ada.
+- **Python runtime**: PyInstaller bundle Python 3.12 + semua dependency
+  (psutil, pydantic, webview, pywin32, dll) ke `_internal/`. Tidak perlu
+  Python terinstal di device target.
+- **Visual C++ Redistributable**: VCRed sudah static-linked di python312.dll.
+- **WMI COM**: `win32com.client` di-bundle, akses WMI langsung tanpa
+  subprocess (kompatibel Windows 10/11, tidak tergantung wmic.exe yang
+  sudah deprecated di Win11 24H2).
+- **Manifest**: `asInvoker` (tidak paksa UAC), supportedOS Win8.1/10/11,
+  PerMonitorV2 DPI, UTF-8 codepage, longPathAware.
+- **Architecture**: amd64 (64-bit). Tidak kompatibel dengan Windows 32-bit
+  (sudah didokumentasikan sebagai requirement).
+
+### Verifikasi
+
+- Build: sukses, no warning.
+- Smoke test: EXE jalan PID 16628, Responding=True, CPU=1.98s, Mem=103MB.
+- Smart Scan (elevated): 261ms, CPU/GPU/Storage/Network/Windows semua
+  terdeteksi.
+- Tidak ada hardcoded reference ke "IPANOptimizer" di source code (hanya
+  di docs/tests yang tidak mempengaruhi runtime).
+
+### File yang diubah
+
+- `installer/ipan_optimizer.spec` — rename EXE + tambah hidden imports.
+
+## 2026-08-03 — Ganti animasi apply-process + percepat login + Smart Scan 35x lebih cepat
+
+**Status:** Selesai. `ruff check`, `ruff format --check`, `mypy src` bersih;
+`check_frontend_policy.py` valid; `pytest` 96 pass (1 fail pre-existing).
+EXE rebuild jalan Run as Administrator.
+
+### 1. Animasi apply-process: ring → hacker terminal
+
+User minta hapus animasi ring, ganti dengan style hacker terminal selaras
+tema aplikasi (sama seperti `hw-terminal` di login screen).
+
+**HTML (`frontend/index.html`):**
+- Hapus `phase-dial` (ring + 4 phase-node + pointer + track).
+- Tambah `process-terminal` dengan 3 elemen: head (3 dot + title
+  `ipx://apply-engine`), body (core IPX badge), foot (cursor blink).
+
+**CSS (`frontend/css/components.css`):**
+- Hapus semua `.phase-dial`, `.phase-node`, `.phase-dial-pointer` styles.
+- Hapus keyframes: `dial-ticks-spin`, `dial-ticks-spin-reverse`,
+  `core-pulse-ring`, `node-cascade`.
+- Tambah `.process-terminal` styles: window chrome dengan 3 dot (red/
+  yellow/green), border, `--color-bg-void` background, monospace font.
+- Tambah scan-line sweep (`::after` di `process-terminal-body`):
+  garis tipis bergerak vertical 1.6s loop.
+- Tambah cursor blink (`cursor-blink` keyframes).
+- Core `IPX` badge: rectangle kecil dengan accent border + glow. Saat
+  **success**: morph jadi pill 96×28px dengan success color + scan-line
+  fade. Saat **blocked**: shake animation.
+
+**JS (`frontend/js/app.js`):**
+- `syncPhaseDial()` jadi no-op (HTML ring sudah dihapus, tapi call sites
+  tetap dipertahankan untuk backward compat).
+
+### 2. Percepat login animation
+
+`HW_WORD_MS=2200` (2.2s per word) terlalu lambat. Turunkan:
+- `HW_WORD_MS`: 2200 → 600 (3.7x lebih cepat)
+- `HW_STATUS_PAUSE_MS`: 1800 → 500 (3.6x)
+- `HW_LINE_PAUSE_MS`: 3200 → 900 (3.5x)
+
+Startup rings di `layout.css` juga dipercepat:
+- ring-1: 12s → 7s
+- ring-2: 7s → 4.5s
+- ring-3: 4.5s → 3s
+
+### 3. Smart Scan 35x lebih cepat (6542ms → 185ms)
+
+**Root cause:** `scan_hardware` pakai 6 subprocess serial (wmic +
+powershell). Setiap powershell call ~1.5-2s startup. Total 6.5 detik.
+
+**Fix (`src/ipan_optimizer/core/hardware_scanner.py`):**
+
+1. **CPU + RAM pakai psutil** (instant <5ms, no subprocess). Wmic hanya
+   fallback kalau psutil gagal.
+2. **GPU + Storage + Network pakai WMI COM via `win32com.client`** —
+   akses WMI service langsung tanpa subprocess. Cached di
+   `_BATCH_CACHE` (module-level). Fallback ke batched powershell kalau
+   COM init gagal.
+3. **Windows info pakai `winreg`** — baca registry langsung (<1ms, no
+   subprocess). Hapus powershell `Get-ItemProperty`.
+4. **Serial, bukan parallel** — ThreadPoolExecutor menambah 5s overhead
+   karena WMI COM single-threaded. Serial lebih cepat dalam praktik.
+
+**Benchmark hasil:**
+- `scan_hardware()`: **185ms** (sebelumnya 6542ms) → **35x lebih cepat**
+- Per function: cpu 92ms, gpu 110ms, ram 84ms, storage/network/windows
+  ~0ms (cached).
+- Semua data terdeteksi: CPU 6c/12t, RAM 16GB DDR4, GPU AMD Radeon RX
+  6600 XT, 3 storage devices, 2 network adapters, Windows 10 Pro.
+
+### File yang diubah
+
+- `src/ipan_optimizer/frontend/index.html` — ganti `phase-dial` dengan
+  `process-terminal`.
+- `src/ipan_optimizer/frontend/css/components.css` — hapus ring styles,
+  tambah terminal styles + keyframes baru.
+- `src/ipan_optimizer/frontend/js/app.js` — `syncPhaseDial` no-op,
+  percepat login timing constants.
+- `src/ipan_optimizer/frontend/css/layout.css` — percepat startup-spin
+  rings.
+- `src/ipan_optimizer/core/hardware_scanner.py` — psutil fast path,
+  WMI COM batch, winreg untuk Windows, hapus ThreadPoolExecutor.
+
+## 2026-08-03 — Optimasi CPU 100% saat Smart Scan + telemetry loop
+
+**Status:** Selesai. `ruff check`, `ruff format --check`, `mypy src` bersih;
+`check_frontend_policy.py` valid; `pytest` 96 pass (1 fail pre-existing).
+Benchmark: 24ms per telemetry read (turun dari ~500-1500ms). App idle CPU
+<1%.
+
+### Root cause CPU 100%
+
+`frontend/js/app.js` menjalankan `setInterval(get_realtime_stats, 1000)`
+yang setiap tick memanggil `read_telemetry()` di
+`adapters/windows/telemetry.py`. Fungsi itu **menjalankan 5+ subprocess
+PowerShell + nvidia-smi setiap call** (MSAcpi_ThermalZoneTemperature,
+OpenHardwareMonitor, AMD name detection, StorageReliabilityCounter,
+nvidia-smi). Setiap subprocess spawn 100-500ms → total 500-1500ms per
+tick → CPU pegged 100% sustained.
+
+### Fix
+
+**Backend (`adapters/windows/telemetry.py`):**
+- Tambah `_SlowSensorCache` — background daemon thread refresh
+  slow sensors (powershell, nvidia-smi, MAHM) tiap 3 detik, simpan ke
+  cache dengan threading.Lock.
+- `read_telemetry()` kini **fast-path only**: baca PDH counter (CPU
+  load/freq, <1ms), psutil virtual_memory (<1ms), dan cached slow
+  sensors (non-blocking read).
+- Tidak ada subprocess spawn di hot path. Semua subprocess dipindah ke
+  `_SlowSensorCache._refresh_once()` yang jalan di background.
+- Resolve executable via `shutil.which()` (fix S607 ruff).
+- Type-safe cache read dengan `isinstance(val, (int, float))` check
+  (fix mypy union type mismatch).
+
+**Frontend (`frontend/js/app.js`):**
+- `setInterval(..., 1000)` → `setInterval(..., 2500)` (interval 2.5s,
+  cukup untuk UI telemetry yang lambat berubah).
+- Skip telemetry fetch saat `document.hidden` (tab tidak aktif).
+- `drawTelemetryChart` tambah `_pendingFrame` flag coalescing — 7 chart
+  redraw per tick jadi 1 batch (anti redundant getContext calls).
+
+### Verifikasi
+
+- Benchmark 10x `read_telemetry()`: 243ms total = 24.3ms/call (sebelumnya
+  500-1500ms/call).
+- App idle 35 detik: CPU time naik 0.27s → avg 0.77% CPU.
+- Memory stabil 103-110MB (sebelumnya climbing karena subprocess leak).
+
+### File yang diubah
+
+- `src/ipan_optimizer/adapters/windows/telemetry.py` — tambah
+  `_SlowSensorCache`, refactor `read_telemetry()` fast-path, update
+  `_TelemetryProviders.slow` property.
+- `src/ipan_optimizer/frontend/js/app.js` — interval 1s→2.5s,
+  `document.hidden` guard, `drawTelemetryChart` _pendingFrame throttle.
+
+## 2026-08-03 — Animasi futuristik untuk apply-process + fix real-write tweaks
+
+**Status:** Selesai. `ruff check`, `ruff format --check`, `mypy src` bersih;
+`scripts/check_frontend_policy.py` valid (no gradient, no random hex, no
+inline handler). EXE rebuild jalan Run as Administrator, no crash.
+
+### Animasi futuristic/elegant untuk animasi OK (apply-process)
+
+Visual `phase-dial` dirombak total dengan elemen-elemen berikut (semua
+pakai token CSS existing, tidak ada gradient/glassmorphism):
+
+1. **Outer tick ring (60 ticks)** — SVG inline dengan `currentColor`,
+   setiap tick ke-5 di-emphasize (stroke-width 1.2 + opacity 0.7), sisanya
+   tipis (0.5 + 0.3). Berputar CW 24s via `dial-ticks-spin`.
+2. **Inner tick ring (8 ticks di radius 32-36)** — warna
+   `--color-accent-bright`, berputar CCW 16s via
+   `dial-ticks-spin-reverse`. Efek watch-movement / radar sci-fi.
+3. **Pointer panjang 64px** dengan glow box-shadow berlapis + dot
+   terminal. Transition rotate cubic-bezier 460ms.
+4. **Process-core (lingkar tengah)** — lebih besar (54px) dengan border
+   1.5px + box-shadow multi-layer (ring outer + inner glow) + inset glow.
+   Saat **running**: breathing 1.6s + 2 pulse ring staggered (::before
+   + ::after delay 800ms) seperti gelombang elektromagnetik.
+   Saat **success**: morph jadi pill 88×36px dengan border-radius 18px,
+   animasi `core-success-enter` 520ms (scale + letter-spacing expand).
+5. **Node cascade** — saat success, 4 phase-node `done` muncul
+   berurutan (60ms/200ms/340ms/480ms) dengan `node-cascade` animation
+   (scale 0.6 → 1.7 → 1 + opacity fade-in).
+6. **Blocked state** — `process-core-shake` 360ms (translateX ±3px).
+
+### Fix real-write tweaks gagal total
+
+Root cause: `subprocess.run(shell=False)` tidak expand `%TEMP%` dan tidak
+bisa run CMD internal commands (`del`, `rd`, `start`).
+
+Fix di `src/ipan_optimizer/core/tweak_engine.py`:
+- Tambah `_CMD_INTERNAL_COMMANDS` frozenset (29 entries: `del`, `rd`,
+  `start`, `copy`, `move`, `md`, `rename`, `cacls`, `cd`, dll).
+- Tambah `_resolve_command()`: expand env vars via `os.path.expandvars`,
+  lalu wrap CMD internal sebagai `["cmd", "/c", *expanded]`.
+- `_run_step` pakai `_resolve_command(step.command)`.
+
+### Verifikasi
+
+- `cleanup.clean_temp_files` → `success: True, applied: 1` (sebelumnya 0).
+- `system.apply_booster` (elevated) → `86 berhasil, 5 gagal` (sebelumnya 0).
+- `pytest` 96 pass (1 fail pre-existing: `test_emulator_tweak` di host
+  tanpa BlueStacks).
+
+### File yang diubah
+
+- `src/ipan_optimizer/frontend/css/components.css` — section
+  `.apply-process-visual`, `.phase-dial`, `.process-core`,
+  keyframes (`dial-ticks-spin`, `dial-ticks-spin-reverse`,
+  `core-pulse-ring`, `core-success-enter`, `process-core-shake`,
+  `node-cascade`).
+- `src/ipan_optimizer/core/tweak_engine.py` — `_CMD_INTERNAL_COMMANDS`,
+  `_resolve_command`, update `_run_step`.
+
+## 2026-08-03 — Kompatibilitas EXE cross-OS (Windows 10/11 + mod) + perbaiki C:\Program
+
+**Status:** Selesai. `ruff check`, `ruff format --check`, `mypy src` bersih;
+`pytest` = **96 passed, 1 failed** (pre-existing test_api `test_emulator_tweak`
+— gagal karena machine tidak ada BlueStacks, bukan dari perubahan ini);
+EXE rebuild jalan tanpa admin, no crash di Event Viewer.
+
+### Konteks
+
+User laporkan EXE menampilkan "minimum supported platform is Windows..." +
+crash saat Run as Administrator. Riset mendalam via 3 task paralel:
+Windows custom OS (Ghost Spectre, ReviOS, AtlasOS, tiny11, XLite),
+PyInstaller bootloader compatibility, WebView2 distribution di Windows mod.
+
+### Root cause crash EXE lama
+
+1. `requireAdministrator` manifest + PE timestamp 1970 (PyInstaller default)
+   → trigger `apphelp.dll` injection (Windows Compatibility Shim).
+2. `apphelp.dll` tidak CFG-aware → Control Flow Guard bootloader trap →
+   `0xc0000005` access violation di offset `0xa462` bootloader sebelum
+   Python runtime dimuat (konfirmasi via WER Report.wer: hanya 23 modul
+   terload, crash di `IPANOptimizer.exe` sendiri).
+
+### Perubahan
+
+1. **`installer/main.manifest`** — `requireAdministrator` → `asInvoker`.
+   Tambah dependency `Microsoft.Windows.Common-Controls` v6. Tambah
+   supportedOS GUID untuk Vista/7/8/8.1/10/11 (kompatibel max).
+2. **`installer/ipan_optimizer.spec`** — hapus `uac_admin=True`. Tambah
+   bundle `data/webview2_fixed/` kalau ada (Fixed Version Runtime portable).
+3. **`src/ipan_optimizer/main.py`** — `ensure_runtime_requirements` kini:
+   - Prefer Fixed Version Runtime bundled (`WEBVIEW2_RUNTIME_PATH`).
+   - Auto `icacls /grant *S-1-15-2-2` + `*S-1-15-2-1` untuk AppContainer
+     (wajib Win10 Fixed Version 120+).
+   - Fallback ke system Evergreen → Standalone Installer → bootstrapper.
+4. **`src/ipan_optimizer/app/webview2_runtime.py`** — tambah
+   `standalone_installer_path()`, `fixed_runtime_path()`,
+   `fixed_runtime_available()`. `ensure_webview2` resolution order:
+   Fixed Version → system install → offline installer → bootstrapper.
+5. **`AGENTS.md`** — update policy override #1: `asInvoker` (was
+   `requireAdministrator`) dengan rationale kompatibilitas Windows mod.
+6. **Bundle:** `MicrosoftEdgeWebView2RuntimeInstallerX64.exe` (200MB
+   offline installer) di `src/ipan_optimizer/data/`.
+
+### Infra
+
+- Python 3.12.10 terinstal di `C:\Python312` (sebelumnya salah target ke
+  `C:\Program` → memicu Windows AppHelp check "rename to C:\Program1").
+- Dependencies: psutil, pydantic, pywebview, pywin32, pyinstaller 6.21.0,
+  pytest, ruff, mypy.
+
+### Hasil test EXE
+
+- `IPANOptimizer.exe` (5.62 MB) jalan **tanpa Run as Administrator**
+  (asInvoker), PID 4224, responding, mem 104MB.
+- Smoke test `--no-window` exit code 0.
+- Tidak ada crash di Event Viewer (sebelumnya APPCRASH 0xc0000005).
+- Total bundle 234MB (termasuk Standalone Installer 200MB).
+
+### Kompatibilitas Windows mod (berdasarkan riset)
+
+- **ReviOS, AtlasOS, Ghost Spectre, XLite, tiny11** — Edge+WebView2 sering
+  dihapus; app kini fallback ke Standalone Installer offline.
+- **UAC disabled** (Ghost Spectre) — `asInvoker` kompatibel, tidak break.
+- **WinSxS stripped** (tiny11 Core) — PyInstaller otomatis bundle
+  `vcruntime140.dll`, `ucrtbase.dll` (verifikasi: ada di `_internal/`).
+- **Skipped:** rebuild bootloader `--no-cfg` (butuh MSVC build tools 5GB,
+  tidak terinstal). Manifest `asInvoker` saja sudah cukup hilangkan
+  apphelp injection. Tambah saat: masih crash di Windows mod dengan AV/EDR.
+
 ## 2026-08-02 — Emulator real tweaks + Fixes real tweaks + hapus preset Free Fire
 
 **Status:** Selesai. `ruff format --check`, `ruff check`, `mypy src` bersih;

@@ -11,10 +11,69 @@ powercfg changes are best-effort and may require admin elevation.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from dataclasses import dataclass, field
 from typing import Any
+
+_CMD_INTERNAL_COMMANDS = frozenset(
+    {
+        "del",
+        "rd",
+        "rmdir",
+        "start",
+        "copy",
+        "move",
+        "md",
+        "mkdir",
+        "ren",
+        "rename",
+        "type",
+        "echo",
+        "set",
+        "call",
+        "for",
+        "if",
+        "pushd",
+        "popd",
+        "attrib",
+        "cacls",
+        "format",
+        "label",
+        "vol",
+        "chdir",
+        "cd",
+        "cls",
+        "color",
+        "date",
+        "time",
+        "title",
+        "ver",
+        "verify",
+    }
+)
+
+
+def _resolve_command(command: list[str]) -> list[str]:
+    """Expand env vars and resolve CMD internal commands.
+
+    ``subprocess.run(shell=False)`` cannot expand ``%TEMP%`` or run CMD
+    builtins like ``del``/``rd``. This helper:
+    1. Expands ``%VAR%`` patterns in every argument via ``os.path.expandvars``.
+    2. Detects CMD internal commands (``del``, ``rd``, ``start``, ...) and
+       wraps them as ``["cmd", "/c", *expanded]``.
+    3. Leaves real executables (``reg.exe``, ``sc.exe``, ``bcdedit.exe``)
+       unchanged; Windows ``CreateProcess`` resolves them via ``PATH`` even
+       without the ``.exe`` suffix.
+    """
+    if not command:
+        return command
+    expanded = [os.path.expandvars(arg) for arg in command]
+    if expanded[0].lower() in _CMD_INTERNAL_COMMANDS:
+        return ["cmd", "/c", *expanded]
+    return expanded
+
 
 _PREFETCH = (
     r"SYSTEM\CurrentControlSet\Control\Session Manager"
@@ -2606,8 +2665,9 @@ def _run_step(step: TweakStep) -> dict[str, Any]:
             "error": "Tweak hanya berjalan di Windows.",
         }
     try:
-        result = subprocess.run(  # noqa: S603 -- trusted local commands.
-            step.command,
+        resolved = _resolve_command(step.command)
+        result = subprocess.run(  # noqa: S603 -- trusted local commands; env vars expanded, CMD internals wrapped.
+            resolved,
             capture_output=True,
             text=True,
             timeout=30,
