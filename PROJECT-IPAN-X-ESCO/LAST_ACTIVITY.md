@@ -5,6 +5,24 @@
 > menyelesaikan pekerjaan pada sesi berjalan, agent **wajib memperbarui** file
 > ini (entri terbaru diletakkan paling atas).
 
+## 2026-08-06 — Copywriting pesan login tanpa kata "Firebase"
+
+**Status:** Selesai. Semua pesan user-facing tidak lagi menyebut "Firebase";
+copywriting dibuat natural & SEO-friendly. Gates lulus (pytest 111 pass, 1
+fail pre-existing BlueStacks).
+
+### Perubahan
+
+- `app/auth.py`:
+  - Pesan license key salah → "License key tidak valid. Pastikan Anda
+    memasukkan kode lisensi yang sesuai dengan akun Anda, lalu coba lagi."
+  - Pesan login belum diaktifkan → tanpa "Firebase Console".
+  - Docstring internal diperbarui (tanpa nama vendor).
+- `frontend/index.html`: label "License Key (Kode Akun)", placeholder "kode
+  lisensi akun Anda", note "Kode lisensi adalah kode akun yang diberikan saat
+  pendaftaran".
+- `tests/unit/test_auth.py`: matcher pesan disesuaikan.
+
 ## 2026-08-06 — License key = UID akun Firebase
 
 **Status:** Selesai. License key pada login kini harus sama persis dengan UID

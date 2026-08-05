@@ -157,7 +157,7 @@ def test_authentication_rejects_license_key_not_matching_uid(
         },
     )
 
-    with pytest.raises(ValueError, match="License key tidak sesuai dengan akun"):
+    with pytest.raises(ValueError, match="License key tidak valid"):
         auth.authenticate("member@example.com", "password-valid", "uid-1")
 
 

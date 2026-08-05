@@ -74,7 +74,7 @@ def _https_request(
         if message in {"INVALID_LOGIN_CREDENTIALS", "EMAIL_NOT_FOUND", "INVALID_PASSWORD"}:
             raise ValueError("Email atau password salah.") from exc
         if message in {"OPERATION_NOT_ALLOWED", "PASSWORD_LOGIN_DISABLED"}:
-            raise ValueError("Login Email/Password belum diaktifkan di Firebase Console.") from exc
+            raise ValueError("Login Email/Password belum diaktifkan di pengaturan akun.") from exc
         if message == "USER_DISABLED":
             raise ValueError("Akun ini dinonaktifkan. Hubungi admin.") from exc
         if message == "TOO_MANY_ATTEMPTS_TRY_LATER":
@@ -146,14 +146,14 @@ def bind_device(uid: str, device_hash: str, token: str) -> None:
 
 
 def authenticate(username: str, password: str, license_key: str = "") -> dict[str, str]:
-    """Authenticate against Firebase and verify the license key is the account UID.
+    """Authenticate against the account service and verify the license key.
 
     Flow:
-    1. Sign in with Email/Password. Firebase returns ``localId``, the stable
-       UID assigned when the account was created in Firebase Auth.
+    1. Sign in with Email/Password. The service returns ``localId``, the
+       stable UID assigned when the account was created.
     2. Verify the user-supplied license key is exactly that UID. The license
-       key is the account UID: when an account is created in the Firebase
-       Console, the UID shown there is the license the customer must enter.
+       key is the account UID: when an account is created, the UID shown is
+       the license the customer must enter.
     3. Bind the account to one device via Firestore Security Rules.
     """
     username = username.strip()
@@ -173,7 +173,8 @@ def authenticate(username: str, password: str, license_key: str = "") -> dict[st
         raise ValueError("Token login tidak valid.")
     if license_key != uid:
         raise ValueError(
-            "License key tidak sesuai dengan akun. Gunakan UID akun dari Firebase Authentication."
+            "License key tidak valid. Pastikan Anda memasukkan kode lisensi "
+            "yang sesuai dengan akun Anda, lalu coba lagi."
         )
     device_hash = device_fingerprint()
     if len(device_hash) != DEVICE_HASH_LENGTH:
