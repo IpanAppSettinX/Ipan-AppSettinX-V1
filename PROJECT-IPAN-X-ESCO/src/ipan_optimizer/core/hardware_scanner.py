@@ -124,7 +124,7 @@ _BATCH_CACHE: dict[str, Any] | None = None
 
 
 def _run_batch_wmi() -> dict[str, Any]:
-    """Query GPU, storage, and network via WMI COM (no subprocess).
+    """Query CPU, GPU, storage, and network via WMI COM (no subprocess).
 
     Uses ``win32com`` to talk to the WMI service directly. This avoids the
     ~1.5 s PowerShell startup cost per call. Falls back to a single batched
@@ -135,7 +135,7 @@ def _run_batch_wmi() -> dict[str, Any]:
         return _BATCH_CACHE
 
     # Primary path: WMI COM (instant, no subprocess).
-    result: dict[str, Any] = {"gpu": [], "storage": [], "net": []}
+    result: dict[str, Any] = {"cpu": [], "gpu": [], "storage": [], "net": []}
     try:
         import contextlib
 
@@ -144,14 +144,31 @@ def _run_batch_wmi() -> dict[str, Any]:
         locator = win32com.client.Dispatch("WbemScripting.SWbemLocator")
         with contextlib.suppress(Exception):
             wmi = locator.ConnectServer(".", "root\\cimv2")
+            cpu_set = wmi.ExecQuery(
+                "Select Name,Manufacturer,NumberOfCores,NumberOfLogicalProcessors,"
+                "MaxClockSpeed from Win32_Processor"
+            )
+            result["cpu"] = [
+                {
+                    "Name": item.Name,
+                    "Manufacturer": getattr(item, "Manufacturer", "Unknown"),
+                    "NumberOfCores": getattr(item, "NumberOfCores", 0),
+                    "NumberOfLogicalProcessors": getattr(item, "NumberOfLogicalProcessors", 0),
+                    "MaxClockSpeed": getattr(item, "MaxClockSpeed", 0),
+                }
+                for item in cpu_set
+            ]
+        with contextlib.suppress(Exception):
+            wmi = locator.ConnectServer(".", "root\\cimv2")
             gpu_set = wmi.ExecQuery(
-                "Select Name,DriverVersion,AdapterRAM from Win32_VideoController"
+                "Select Name,DriverVersion,AdapterRAM,PNPDeviceID from Win32_VideoController"
             )
             result["gpu"] = [
                 {
                     "Name": item.Name,
                     "DriverVersion": item.DriverVersion,
                     "AdapterRAM": item.AdapterRAM,
+                    "PNPDeviceID": getattr(item, "PNPDeviceID", ""),
                 }
                 for item in gpu_set
             ]
@@ -194,28 +211,31 @@ def _run_batch_wmi_powershell() -> dict[str, Any]:
     import json
 
     script = (
+        "$cpu = @(Get-CimInstance Win32_Processor | "
+        "Select-Object Name,Manufacturer,NumberOfCores,NumberOfLogicalProcessors,MaxClockSpeed); "
         "$gpu = @(Get-CimInstance Win32_VideoController | "
-        "Select-Object Name,DriverVersion,AdapterRAM); "
+        "Select-Object Name,DriverVersion,AdapterRAM,PNPDeviceID); "
         "$storage = @(Get-PhysicalDisk | "
         "Select-Object FriendlyName,MediaType,Size,BusType,Manufacturer); "
         "$net = @(Get-NetAdapter | Where-Object {$_.Status -eq 'Up'} | "
         "Select-Object Name,LinkSpeed); "
-        "[ordered]@{gpu=$gpu;storage=$storage;net=$net} "
+        "[ordered]@{cpu=$cpu;gpu=$gpu;storage=$storage;net=$net} "
         "| ConvertTo-Json -Compress -Depth 4"
     )
     output = _run_powershell(script)
     if not output:
-        _BATCH_CACHE = {"gpu": [], "storage": [], "net": []}
+        _BATCH_CACHE = {"cpu": [], "gpu": [], "storage": [], "net": []}
         return _BATCH_CACHE
     try:
         parsed = json.loads(output)
         _BATCH_CACHE = {
+            "cpu": parsed.get("cpu") or [],
             "gpu": parsed.get("gpu") or [],
             "storage": parsed.get("storage") or [],
             "net": parsed.get("net") or [],
         }
     except (json.JSONDecodeError, TypeError):
-        _BATCH_CACHE = {"gpu": [], "storage": [], "net": []}
+        _BATCH_CACHE = {"cpu": [], "gpu": [], "storage": [], "net": []}
     return _BATCH_CACHE
 
 
@@ -234,25 +254,66 @@ def _safe_float(value: str, default: float = 0.0) -> float:
 
 
 def _detect_cpu() -> CpuInfo:
-    # Fast path: psutil gives us cores/threads/clock in <5 ms with no subprocess.
+    # Fast path: batch WMI gives the real marketing name (e.g. "AMD Ryzen 5
+    # 5500") and core/thread counts without spawning a subprocess.
     import contextlib
 
+    with contextlib.suppress(Exception):
+        import psutil
+
+        batch = _run_batch_wmi()
+        cpu_rows = batch.get("cpu")
+        cpu_rows = cpu_rows if isinstance(cpu_rows, list) else []
+        name = "Unknown"
+        manufacturer = "Unknown"
+        wmi_cores = 0
+        wmi_threads = 0
+        max_mhz = 0
+        for row in cpu_rows:
+            if not isinstance(row, dict):
+                continue
+            candidate = str(row.get("Name", "")).strip()
+            if candidate:
+                name = candidate
+            manufacturer = str(row.get("Manufacturer", "")).strip() or manufacturer
+            wmi_cores = _safe_int(str(row.get("NumberOfCores", "0")))
+            wmi_threads = _safe_int(str(row.get("NumberOfLogicalProcessors", "0")))
+            max_mhz = _safe_int(str(row.get("MaxClockSpeed", "0")))
+            break
+
+        lowered = f"{name} {manufacturer}".lower()
+        if "intel" in lowered:
+            brand = "Intel"
+        elif "amd" in lowered:
+            brand = "AMD"
+        elif name != "Unknown":
+            brand = name.split()[0].strip() or "Unknown"
+        else:
+            brand = "Unknown"
+
+        # Clock: psutil is instant; fall back to WMI MaxClockSpeed.
+        freq = psutil.cpu_freq()
+        base_ghz = round(freq.current / 1000, 2) if freq else 0.0
+        max_ghz = round(freq.max / 1000, 2) if freq and freq.max > 0 else round(max_mhz / 1000, 2)
+        cores = wmi_cores or (psutil.cpu_count(logical=False) or 0)
+        threads = wmi_threads or (psutil.cpu_count(logical=True) or 0)
+        return CpuInfo(
+            brand=brand,
+            model=name,
+            cores=cores,
+            threads=threads,
+            base_speed_ghz=base_ghz,
+            max_speed_ghz=max_ghz,
+        )
+
+    # Fallback: psutil + platform.processor() (CPUID string, less friendly).
     with contextlib.suppress(Exception):
         import psutil
 
         freq = psutil.cpu_freq()
         base_ghz = round(freq.current / 1000, 2) if freq else 0.0
         max_ghz = round(freq.max / 1000, 2) if freq and freq.max > 0 else base_ghz
-        # Get brand string from platform.processor() or wmic (one-shot, cached).
         name = platform.processor() or "Unknown"
-        if not name or name == "Unknown":
-            rows = _run_wmic(
-                "cpu",
-                ["Name", "Manufacturer", "NumberOfCores", "NumberOfLogicalProcessors"],
-            )
-            if rows:
-                row = rows[0]
-                name = row.get("name", "Unknown")
         lowered_name = name.lower()
         if "intel" in lowered_name:
             brand = "Intel"
@@ -269,7 +330,7 @@ def _detect_cpu() -> CpuInfo:
             max_speed_ghz=max_ghz,
         )
 
-    # Fallback: wmic (slower, ~1-3 s).
+    # Last resort: wmic (slower, ~1-3 s).
     rows = _run_wmic(
         "cpu",
         [
@@ -305,8 +366,54 @@ def _detect_cpu() -> CpuInfo:
     )
 
 
+def _gpu_vram_from_registry(pnp_device_id: str) -> int:
+    """Return true VRAM (MB) by matching the GPU PNPDeviceID to the driver
+    registry key ``HardwareInformation.qwMemorySize``.
+
+    ``Win32_VideoController.AdapterRAM`` is a signed 32-bit value that caps at
+    4 GB and is often wrong on AMD/NVIDIA. The display-driver registry keeps
+    the real value as a QWORD under
+    ``HKLM\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-...}\\####``.
+    """
+    import contextlib
+    import winreg
+
+    if not pnp_device_id:
+        return 0
+    class_root = (
+        r"SYSTEM\CurrentControlSet\Control\Class"
+        r"\{4d36e968-e325-11ce-bfc1-08002be10318}"
+    )
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, class_root) as parent:
+            index = 0
+            while True:
+                try:
+                    subkey = winreg.EnumKey(parent, index)
+                except OSError:
+                    return 0
+                index += 1
+                try:
+                    with winreg.OpenKey(
+                        winreg.HKEY_LOCAL_MACHINE,
+                        class_root + "\\" + subkey,
+                    ) as key:
+                        with contextlib.suppress(OSError):
+                            value, _ = winreg.QueryValueEx(key, "HardwareInformation.qwMemorySize")
+                            if value and int(value) > 0:
+                                return int(value) // (1024 * 1024)
+                        with contextlib.suppress(OSError):
+                            value, _ = winreg.QueryValueEx(key, "HardwareInformation.MemorySize")
+                            if value and int(value) > 0:
+                                return int(value) // (1024 * 1024)
+                except OSError:
+                    continue
+    except OSError:
+        return 0
+
+
 def _detect_gpu() -> list[GpuInfo]:
-    # Fast path: batch WMI query (single powershell call, cached).
+    # Fast path: batch WMI query (single WMI COM call, cached).
     batch = _run_batch_wmi()
     gpu_data = batch.get("gpu")
     gpu_rows: list[Any] = gpu_data if isinstance(gpu_data, list) else []
@@ -324,8 +431,12 @@ def _detect_gpu() -> list[GpuInfo]:
             brand = "Intel"
         else:
             brand = "Unknown"
-        vram_bytes = _safe_int(str(row.get("AdapterRAM", "0")))
-        vram_mb = vram_bytes // (1024 * 1024) if vram_bytes > 0 else 0
+        # True VRAM from the driver registry, then AdapterRAM as fallback.
+        pnp = str(row.get("PNPDeviceID", ""))
+        vram_mb = _gpu_vram_from_registry(pnp)
+        if vram_mb <= 0:
+            vram_bytes = _safe_int(str(row.get("AdapterRAM", "0")))
+            vram_mb = abs(vram_bytes) // (1024 * 1024) if vram_bytes != 0 else 0
         driver = str(row.get("DriverVersion", "Unknown"))
         gpus.append(GpuInfo(brand=brand, model=name, vram_mb=vram_mb, driver_version=driver))
     if gpus:
@@ -373,36 +484,67 @@ def _detect_ram() -> RamInfo:
         34: "DDR5",
     }
 
-    # wmic gives per-module detail (manufacturer, speed, DDR type).
-    rows = _run_wmic(
-        "memorychip",
-        ["Manufacturer", "Capacity", "Speed", "SMBIOSMemoryType"],
-    )
+    # Primary path: WMI COM (no subprocess, works on Win11 24H2 where wmic is
+    # removed). Win32_PhysicalMemory exposes per-module detail.
+    with contextlib.suppress(Exception):
+        import win32com.client
 
-    for row in rows:
-        manufacturer = row.get("manufacturer", "Unknown").strip()
-        capacity_bytes = _safe_int(row.get("capacity", "0"))
-        capacity_mb = capacity_bytes // (1024 * 1024) if capacity_bytes > 0 else 0
-        speed = _safe_int(row.get("speed", "0"))
-        mem_type_id = _safe_int(row.get("smbiosmemorytype", "0"))
-        mem_type = ddr_map.get(mem_type_id, f"Type-{mem_type_id}" if mem_type_id else "Unknown")
-
-        if capacity_mb > 0:
-            modules.append(
-                RamModule(
-                    manufacturer=manufacturer,
-                    capacity_mb=capacity_mb,
-                    speed_mhz=speed,
-                    ddr_type=mem_type,
+        locator = win32com.client.Dispatch("WbemScripting.SWbemLocator")
+        wmi = locator.ConnectServer(".", "root\\cimv2")
+        mem_set = wmi.ExecQuery(
+            "Select Manufacturer,Capacity,Speed,SMBIOSMemoryType from Win32_PhysicalMemory"
+        )
+        for item in mem_set:
+            manufacturer = str(getattr(item, "Manufacturer", "")).strip() or "Unknown"
+            capacity_bytes = _safe_int(str(getattr(item, "Capacity", "0")))
+            capacity_mb = capacity_bytes // (1024 * 1024) if capacity_bytes > 0 else 0
+            speed = _safe_int(str(getattr(item, "Speed", "0")))
+            mem_type_id = _safe_int(str(getattr(item, "SMBIOSMemoryType", "0")))
+            mem_type = ddr_map.get(mem_type_id, f"Type-{mem_type_id}" if mem_type_id else "Unknown")
+            if capacity_mb > 0:
+                modules.append(
+                    RamModule(
+                        manufacturer=manufacturer,
+                        capacity_mb=capacity_mb,
+                        speed_mhz=speed,
+                        ddr_type=mem_type,
+                    )
                 )
-            )
-            total_mb += capacity_mb
-            if speed > max_speed:
-                max_speed = speed
-            if mem_type != "Unknown":
-                ddr_type = mem_type
+                total_mb += capacity_mb
+                if speed > max_speed:
+                    max_speed = speed
+                if mem_type != "Unknown":
+                    ddr_type = mem_type
 
-    # Fallback to psutil if wmic returned nothing (Windows 11 deprecation).
+    # Fallback: wmic (older Windows where COM init failed).
+    if not modules:
+        rows = _run_wmic(
+            "memorychip",
+            ["Manufacturer", "Capacity", "Speed", "SMBIOSMemoryType"],
+        )
+        for row in rows:
+            manufacturer = row.get("manufacturer", "Unknown").strip()
+            capacity_bytes = _safe_int(row.get("capacity", "0"))
+            capacity_mb = capacity_bytes // (1024 * 1024) if capacity_bytes > 0 else 0
+            speed = _safe_int(row.get("speed", "0"))
+            mem_type_id = _safe_int(row.get("smbiosmemorytype", "0"))
+            mem_type = ddr_map.get(mem_type_id, f"Type-{mem_type_id}" if mem_type_id else "Unknown")
+            if capacity_mb > 0:
+                modules.append(
+                    RamModule(
+                        manufacturer=manufacturer,
+                        capacity_mb=capacity_mb,
+                        speed_mhz=speed,
+                        ddr_type=mem_type,
+                    )
+                )
+                total_mb += capacity_mb
+                if speed > max_speed:
+                    max_speed = speed
+                if mem_type != "Unknown":
+                    ddr_type = mem_type
+
+    # Final fallback to psutil (total only, no per-module detail).
     if not modules:
         with contextlib.suppress(Exception):
             import psutil
@@ -418,8 +560,47 @@ def _detect_ram() -> RamInfo:
     )
 
 
+# MSFT_PhysicalDisk.MediaType enum -> label.
+_MEDIA_TYPE_MAP = {
+    0: "Unspecified",
+    3: "HDD",
+    4: "SSD",
+    5: "SCM",
+}
+
+# MSFT_PhysicalDisk.BusType enum -> label.
+_BUS_TYPE_MAP = {
+    0: "Unknown",
+    1: "SCSI",
+    2: "ATAPI",
+    3: "ATA",
+    4: "IEEE 1394",
+    5: "SSA",
+    6: "Fibre Channel",
+    7: "USB",
+    8: "RAID",
+    9: "iSCSI",
+    10: "SAS",
+    11: "SATA",
+    12: "SD",
+    13: "MMC",
+    14: "Virtual",
+    15: "File Backed Virtual",
+    16: "Storage Spaces",
+    17: "NVMe",
+}
+
+
+def _enum_label(mapping: dict[int, str], value: Any) -> str:
+    """Map an integer enum to its label, falling back to the raw value."""
+    try:
+        return mapping.get(int(value), str(value))
+    except (TypeError, ValueError):
+        return str(value)
+
+
 def _detect_storage() -> list[StorageDevice]:
-    # Fast path: batch WMI query (single powershell call, cached).
+    # Fast path: batch WMI query (single WMI COM call, cached).
     batch = _run_batch_wmi()
     storage_data = batch.get("storage")
     storage_rows: list[Any] = storage_data if isinstance(storage_data, list) else []
@@ -428,13 +609,16 @@ def _detect_storage() -> list[StorageDevice]:
         if not isinstance(row, dict):
             continue
         name = str(row.get("FriendlyName", "Unknown"))
-        media_type = str(row.get("MediaType", "Unspecified"))
+        media_type = _enum_label(_MEDIA_TYPE_MAP, row.get("MediaType", 0))
         size_bytes = _safe_float(str(row.get("Size", "0")))
         size_gb = round(size_bytes / (1024**3), 1) if size_bytes > 0 else 0.0
-        bus_type = str(row.get("BusType", "Unknown"))
-        manufacturer = str(row.get("Manufacturer", "")).strip() or "Unknown"
+        bus_type = _enum_label(_BUS_TYPE_MAP, row.get("BusType", 0))
+        manufacturer_raw = row.get("Manufacturer", "")
+        manufacturer = (
+            str(manufacturer_raw).strip() if manufacturer_raw not in (None, "") else "Unknown"
+        )
         lowered_media = media_type.lower()
-        if "ssd" in lowered_media:
+        if "ssd" in lowered_media or "scm" in lowered_media:
             device_type = "SSD"
         elif "hdd" in lowered_media:
             device_type = "HDD"
@@ -454,7 +638,8 @@ def _detect_storage() -> list[StorageDevice]:
 
 def _detect_network() -> list[NetworkInfo]:
     # Fast path: WMI COM query (cached). Win32_NetworkAdapter returns Speed
-    # in bits per second as an integer.
+    # in bits per second as an integer; use the up/adapter with the highest
+    # speed as the primary link.
     batch = _run_batch_wmi()
     net_data = batch.get("net")
     net_rows: list[Any] = net_data if isinstance(net_data, list) else []
@@ -465,9 +650,17 @@ def _detect_network() -> list[NetworkInfo]:
         name = str(row.get("Name", "Unknown"))
         speed_raw = row.get("Speed", 0)
         speed_mbps = 0
-        if isinstance(speed_raw, (int, float)) and speed_raw > 0:
-            speed_mbps = int(speed_raw / 1_000_000)
+        if isinstance(speed_raw, (int, float)):
+            numeric_speed = speed_raw
+        elif isinstance(speed_raw, str) and speed_raw.strip().lstrip("-").isdigit():
+            numeric_speed = int(speed_raw)
+        else:
+            numeric_speed = 0
+        if numeric_speed > 0:
+            speed_mbps = int(numeric_speed / 1_000_000)
         adapters.append(NetworkInfo(adapter_name=name, link_speed_mbps=speed_mbps))
+    if adapters:
+        return sorted(adapters, key=lambda a: a.link_speed_mbps, reverse=True)
     return adapters
 
 

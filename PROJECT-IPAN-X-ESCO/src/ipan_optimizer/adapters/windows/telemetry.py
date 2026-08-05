@@ -1,11 +1,17 @@
 """Read-only hardware telemetry providers.
 
-Combines three documented, non-mutating Windows sources:
+Combines documented, non-mutating Windows sources that mirror what the
+Windows Task Manager shows:
 
 - PDH performance counters for CPU load and effective clock.
+- PDH ``GPU Engine`` / ``GPU Adapter Memory`` counters for GPU utilization
+  and dedicated memory usage (the same counters Task Manager reads; no MSI
+  Afterburner required).
+- PDH ``PhysicalDisk`` and ``Network Interface`` counters for disk active
+  time and network throughput.
 - MSI Afterburner Hardware Monitoring shared memory (``MAHMSharedMemory``)
-  for GPU clock, GPU temperature, and CPU temperature when Afterburner is
-  running.
+  is only an optional extra for GPU/CPU temperature and GPU clock when
+  Afterburner happens to be running; it is never required.
 - ``MSFT_StorageReliabilityCounter`` for SSD temperature.
 
 Every provider fails closed: when a sensor is unavailable the field is
@@ -33,6 +39,11 @@ _FILE_MAP_READ = 0x0004
 _PDH_CPU_PERF = r"\Processor Information(_Total)\% Processor Performance"
 _PDH_CPU_FREQ = r"\Processor Information(_Total)\Processor Frequency"
 _PDH_CPU_TIME = r"\Processor Information(_Total)\% Processor Time"
+_PDH_GPU_ENGINE_UTIL = r"\GPU Engine(*)\Utilization Percentage"
+_PDH_GPU_ADAPTER_MEM = r"\GPU Adapter Memory(*)\Dedicated Usage"
+_PDH_DISK_ACTIVE = r"\PhysicalDisk(_Total)\% Disk Time"
+_PDH_DISK_BYTES = r"\PhysicalDisk(_Total)\Disk Bytes/sec"
+_PDH_NET_BYTES = r"\Network Interface(*)\Bytes Total/sec"
 
 # Effective-clock guard rails: anything outside 10%..200% of base frequency is
 # treated as a transient counter glitch and discarded.
@@ -53,13 +64,22 @@ class TelemetrySample:
     """One snapshot of read-only hardware telemetry.
 
     ``None`` means the sensor is unavailable on this machine right now.
+
+    The GPU/disk/network fields come from the same PDH performance counters
+    the Windows Task Manager reads, so they work on every Windows 10/11
+    build (including custom/modded builds) without MSI Afterburner.
     """
 
     cpu_load_percent: float | None
     cpu_freq_mhz: float | None
     gpu_freq_mhz: float | None
+    gpu_util_percent: float | None
+    gpu_mem_used_mb: float | None
     ram_used_mb: float | None
     ram_percent: float | None
+    disk_active_percent: float | None
+    disk_bytes_per_sec: float | None
+    net_bytes_per_sec: float | None
     cpu_temp_c: float | None
     gpu_temp_c: float | None
     ssd_temp_c: float | None
@@ -184,6 +204,118 @@ class _PdhCpuSampler:
         return load, freq
 
 
+class _PdhTaskManagerSampler:
+    """Read Task Manager-style counters via PDH.
+
+    CPU/disk/network use cheap persistent counters. GPU engine utilization and
+    GPU adapter memory require enumerating the live ``GPU Engine`` instances
+    (the same data Task Manager reads) and summing them, because the ``*``
+    wildcard does not aggregate fraction counters. The GPU enumeration is
+    comparatively expensive (~150-250 ms), so ``refresh()`` is called from a
+    background thread and ``read()`` only returns the last snapshot.
+    """
+
+    def __init__(self) -> None:
+        import win32pdh
+
+        self._win32pdh = win32pdh
+        self._query = win32pdh.OpenQuery()
+        self._disk_time = win32pdh.AddCounter(self._query, _PDH_DISK_ACTIVE)
+        self._disk_bytes = win32pdh.AddCounter(self._query, _PDH_DISK_BYTES)
+        self._net_bytes = win32pdh.AddCounter(self._query, _PDH_NET_BYTES)
+        self._lock = __import__("threading").Lock()
+        self._gpu_util: float | None = None
+        self._gpu_mem_mb: float | None = None
+        self._disk_active: float | None = None
+        self._disk_bps: float | None = None
+        self._net_bps: float | None = None
+        # Rate counters require two samples; prime once.
+        win32pdh.CollectQueryData(self._query)
+
+    def refresh(self) -> None:
+        """Re-read every Task Manager counter and cache the snapshot."""
+        pdh = self._win32pdh
+        disk_active: float | None = None
+        disk_bps: float | None = None
+        net_bps: float | None = None
+        with contextlib.suppress(Exception):
+            pdh.CollectQueryData(self._query)
+            _, raw = pdh.GetFormattedCounterValue(self._disk_time, pdh.PDH_FMT_DOUBLE)
+            if 0.0 <= raw <= 100.0:
+                disk_active = float(raw)
+            _, raw = pdh.GetFormattedCounterValue(self._disk_bytes, pdh.PDH_FMT_DOUBLE)
+            disk_bps = float(raw) if raw >= 0 else None
+            _, raw = pdh.GetFormattedCounterValue(self._net_bytes, pdh.PDH_FMT_DOUBLE)
+            net_bps = float(raw) if raw >= 0 else None
+
+        gpu_util: float | None = None
+        gpu_mem_mb: float | None = None
+        with contextlib.suppress(Exception):
+            _, instances = pdh.EnumObjectItems(None, None, "GPU Engine", pdh.PERF_DETAIL_WIZARD)
+            if instances:
+                query = pdh.OpenQuery()
+                try:
+                    counters = [
+                        pdh.AddCounter(query, rf"\GPU Engine({inst})\Utilization Percentage")
+                        for inst in instances
+                    ]
+                    pdh.CollectQueryData(query)
+                    pdh.CollectQueryData(query)
+                    total = 0.0
+                    for handle in counters:
+                        with contextlib.suppress(Exception):
+                            _, value = pdh.GetFormattedCounterValue(handle, pdh.PDH_FMT_DOUBLE)
+                            total += float(value)
+                    if 0.0 <= total <= 100.0:
+                        gpu_util = total
+                finally:
+                    pdh.CloseQuery(query)
+
+        with contextlib.suppress(Exception):
+            _, mem_instances = pdh.EnumObjectItems(
+                None, None, "GPU Adapter Memory", pdh.PERF_DETAIL_WIZARD
+            )
+            if mem_instances:
+                query = pdh.OpenQuery()
+                try:
+                    counters = [
+                        pdh.AddCounter(
+                            query,
+                            rf"\GPU Adapter Memory({inst})\Dedicated Usage",
+                        )
+                        for inst in mem_instances
+                    ]
+                    pdh.CollectQueryData(query)
+                    pdh.CollectQueryData(query)
+                    total_bytes = 0.0
+                    for handle in counters:
+                        with contextlib.suppress(Exception):
+                            _, value = pdh.GetFormattedCounterValue(handle, pdh.PDH_FMT_DOUBLE)
+                            total_bytes += float(value)
+                    if total_bytes > 0:
+                        gpu_mem_mb = total_bytes / (1024 * 1024)
+                finally:
+                    pdh.CloseQuery(query)
+
+        with self._lock:
+            self._gpu_util = gpu_util
+            self._gpu_mem_mb = gpu_mem_mb
+            self._disk_active = disk_active
+            self._disk_bps = disk_bps
+            self._net_bps = net_bps
+
+    def read(self) -> tuple[float | None, float | None, float | None, float | None, float | None]:
+        """Return cached (gpu_util, gpu_mem_mb, disk_active, disk_bps, net_bps)."""
+        with self._lock:
+            return (
+                self._gpu_util,
+                self._gpu_mem_mb,
+                self._disk_active,
+                self._disk_bps,
+                self._net_bps,
+            )
+
+
 class _StorageTempSampler:
     """SSD temperature from Storage Reliability counters.
 
@@ -281,6 +413,9 @@ class _SlowSensorCache:
         gpu_temp: float | None = None
         gpu_freq: float | None = None
         amd_name = ""
+
+        # Task Manager-style PDH counters (GPU util/memory, disk, network).
+        _refresh_task_manager()
 
         # MSI Afterburner shared memory (no subprocess cost).
         with contextlib.suppress(Exception):
@@ -410,6 +545,14 @@ class _SlowSensorCache:
             return dict(self._cached)
 
 
+def _refresh_task_manager() -> None:
+    """Refresh Task Manager-style PDH counters on the background thread."""
+    task = _PROVIDERS.task
+    if task is not None:
+        with contextlib.suppress(Exception):
+            task.refresh()
+
+
 def pick_sensor(entries: dict[str, float], entry_id: str) -> float | None:
     """Return a positive sensor value from parsed MAHM entries, else ``None``."""
     value = entries.get(entry_id)
@@ -424,9 +567,11 @@ class _TelemetryProviders:
     def __init__(self) -> None:
         self._mahm: _MahmReader | None = None
         self._pdh: _PdhCpuSampler | None = None
+        self._task: _PdhTaskManagerSampler | None = None
         self._storage: _StorageTempSampler | None = None
         self._slow: _SlowSensorCache | None = None
         self._pdh_broken = False
+        self._task_broken = False
         self._storage_broken = False
 
     @property
@@ -443,6 +588,15 @@ class _TelemetryProviders:
             except Exception:
                 self._pdh_broken = True
         return self._pdh
+
+    @property
+    def task(self) -> _PdhTaskManagerSampler | None:
+        if self._task is None and not self._task_broken:
+            try:
+                self._task = _PdhTaskManagerSampler()
+            except Exception:
+                self._task_broken = True
+        return self._task
 
     @property
     def storage(self) -> _StorageTempSampler | None:
@@ -467,13 +621,20 @@ _PROVIDERS = _TelemetryProviders()
 def read_telemetry() -> TelemetrySample:
     """Collect one read-only telemetry snapshot from every available source.
 
-    Fast path: PDH counters, psutil RAM, and the cached slow-sensor values.
-    No subprocess is spawned on this call path; the background daemon thread
-    refreshes temperatures and GPU clock every few seconds.
+    Fast path: PDH CPU counters, Task Manager-style PDH counters (GPU
+    util/memory, disk, network), psutil RAM, and the cached slow-sensor
+    values. No subprocess is spawned on this call path; the background daemon
+    thread refreshes temperatures, GPU clock, and the GPU engine enumeration
+    every few seconds.
     """
     cpu_load: float | None = None
     cpu_freq: float | None = None
     gpu_freq: float | None = None
+    gpu_util: float | None = None
+    gpu_mem_mb: float | None = None
+    disk_active: float | None = None
+    disk_bps: float | None = None
+    net_bps: float | None = None
     cpu_temp: float | None = None
     gpu_temp: float | None = None
     ssd_temp: float | None = None
@@ -486,6 +647,13 @@ def read_telemetry() -> TelemetrySample:
             cpu_load, cpu_freq = pdh.read()
         except Exception:
             _PROVIDERS._pdh_broken = True
+
+    task = _PROVIDERS.task
+    if task is not None:
+        try:
+            gpu_util, gpu_mem_mb, disk_active, disk_bps, net_bps = task.read()
+        except Exception:
+            _PROVIDERS._task_broken = True
 
     # Slow sensors: non-blocking read of background cache.
     slow = _PROVIDERS.slow
@@ -523,8 +691,13 @@ def read_telemetry() -> TelemetrySample:
         cpu_load_percent=cpu_load,
         cpu_freq_mhz=cpu_freq,
         gpu_freq_mhz=gpu_freq,
+        gpu_util_percent=gpu_util,
+        gpu_mem_used_mb=gpu_mem_mb,
         ram_used_mb=ram_used,
         ram_percent=ram_percent,
+        disk_active_percent=disk_active,
+        disk_bytes_per_sec=disk_bps,
+        net_bytes_per_sec=net_bps,
         cpu_temp_c=cpu_temp,
         gpu_temp_c=gpu_temp,
         ssd_temp_c=ssd_temp,

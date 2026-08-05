@@ -243,7 +243,7 @@ def test_primary_workflows_have_no_browser_errors(tmp_path: Path) -> None:
         assert page.locator(".hw-icon img").count() == 5
         first_icon = page.locator(".hw-icon img").first.get_attribute("src")
         assert first_icon is not None
-        assert "hw/cpu.svg" in first_icon
+        assert "fluent/" in first_icon
 
         click(page, "nav.tweaks")
         page.locator("#tweak-status").filter(has_text="tweak ditampilkan").wait_for()

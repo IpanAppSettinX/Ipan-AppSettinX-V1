@@ -248,7 +248,7 @@
             <div class="telemetry-header">
               <div>
                 <h2>Live Telemetry</h2>
-                <p>Data diperbarui setiap 1 detik. Grafik menampilkan 60 sampel terakhir — CPU, GPU, Load, RAM, dan Suhu.</p>
+                <p>Data diperbarui setiap 2,5 detik. Grafik menampilkan 60 sampel terakhir — CPU, GPU, RAM, Disk, dan Jaringan (sumber: performance counter Windows, sama seperti Task Manager).</p>
               </div>
               <span class="status-badge success">Live</span>
             </div>
@@ -262,13 +262,6 @@
               </div>
               <div class="telemetry-card">
                 <div class="telemetry-meta">
-                  <span class="telemetry-label">GPU Clock</span>
-                  <span id="rt-gpu-speed-tm" class="telemetry-value">--</span>
-                </div>
-                <canvas id="chart-gpu-speed" class="telemetry-chart" width="360" height="120" aria-label="Grafik kecepatan GPU"></canvas>
-              </div>
-              <div class="telemetry-card">
-                <div class="telemetry-meta">
                   <span class="telemetry-label">CPU Load</span>
                   <span id="rt-cpu-load-tm" class="telemetry-value">--</span>
                 </div>
@@ -276,10 +269,38 @@
               </div>
               <div class="telemetry-card">
                 <div class="telemetry-meta">
+                  <span class="telemetry-label">GPU Usage</span>
+                  <span id="rt-gpu-util-tm" class="telemetry-value">--</span>
+                </div>
+                <canvas id="chart-gpu-util" class="telemetry-chart" width="360" height="120" aria-label="Grafik penggunaan GPU"></canvas>
+              </div>
+              <div class="telemetry-card">
+                <div class="telemetry-meta">
+                  <span class="telemetry-label">GPU Memory</span>
+                  <span id="rt-gpu-mem-tm" class="telemetry-value">--</span>
+                </div>
+                <canvas id="chart-gpu-mem" class="telemetry-chart" width="360" height="120" aria-label="Grafik memori GPU"></canvas>
+              </div>
+              <div class="telemetry-card">
+                <div class="telemetry-meta">
                   <span class="telemetry-label">RAM Usage</span>
                   <span id="rt-ram-used-tm" class="telemetry-value">--</span>
                 </div>
                 <canvas id="chart-ram-used" class="telemetry-chart" width="360" height="120" aria-label="Grafik penggunaan RAM"></canvas>
+              </div>
+              <div class="telemetry-card">
+                <div class="telemetry-meta">
+                  <span class="telemetry-label">Disk Active</span>
+                  <span id="rt-disk-active-tm" class="telemetry-value">--</span>
+                </div>
+                <canvas id="chart-disk-active" class="telemetry-chart" width="360" height="120" aria-label="Grafik aktivitas disk"></canvas>
+              </div>
+              <div class="telemetry-card">
+                <div class="telemetry-meta">
+                  <span class="telemetry-label">Network</span>
+                  <span id="rt-net-tm" class="telemetry-value">--</span>
+                </div>
+                <canvas id="chart-net" class="telemetry-chart" width="360" height="120" aria-label="Grafik throughput jaringan"></canvas>
               </div>
               <div class="telemetry-card">
                 <div class="telemetry-meta">

@@ -165,8 +165,6 @@ const fallbackApi = {
     const t = Date.now() / 1000;
     const cpuBase = 3200;
     const cpuVary = Math.sin(t * 1.7) * 400 + Math.sin(t * 3.1) * 200 + Math.sin(t * 0.7) * 300;
-    const gpuBase = 1400;
-    const gpuVary = Math.sin(t * 2.3) * 200 + Math.sin(t * 1.1) * 150;
     const cpuLoadBase = 25;
     const cpuLoadVary = Math.sin(t * 0.8) * 18 + Math.sin(t * 2.7) * 10;
     const ramBase = 8192;
@@ -177,12 +175,18 @@ const fallbackApi = {
     const ssdTempVary = Math.sin(t * 0.3) * 5 + Math.sin(t * 0.7) * 3;
     const gpuTempBase = 62;
     const gpuTempVary = Math.sin(t * 0.6) * 10 + Math.sin(t * 2.1) * 5;
+    const gpuUtilBase = 30;
+    const gpuUtilVary = Math.sin(t * 1.1) * 20 + Math.sin(t * 0.5) * 10;
     return response({
       cpu_percent: Math.max(2, Math.min(98, Math.round(cpuLoadBase + cpuLoadVary))),
       cpu_freq_mhz: Math.round(cpuBase + cpuVary),
-      gpu_freq_mhz: Math.round(Math.max(300, gpuBase + gpuVary)),
+      gpu_util_percent: Math.max(0, Math.min(100, Math.round(gpuUtilBase + gpuUtilVary))),
+      gpu_mem_used_mb: Math.round(4096 + Math.sin(t * 0.6) * 512),
       ram_used_mb: Math.round(ramBase + ramVary),
       ram_percent: Math.round(50 + Math.sin(t * 0.4) * 5),
+      disk_active_percent: Math.max(0, Math.min(100, Math.round(20 + Math.sin(t * 1.3) * 15))),
+      disk_bytes_per_sec: 50_000_000 + Math.sin(t * 0.9) * 20_000_000,
+      net_bytes_per_sec: 25_000_000 + Math.sin(t * 0.7) * 12_000_000,
       cpu_temp_c: Math.round(Math.max(30, cpuTempBase + cpuTempVary)),
       ssd_temp_c: Math.round(Math.max(25, ssdTempBase + ssdTempVary)),
       gpu_temp_c: Math.round(Math.max(35, gpuTempBase + gpuTempVary)),

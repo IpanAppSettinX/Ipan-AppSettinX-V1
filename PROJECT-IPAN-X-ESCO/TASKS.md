@@ -2,6 +2,18 @@
 
 ## Build EXE + Windows custom compatibility
 
+- [x] Scan hardware akurat untuk semua device: nama prosesor asli via WMI
+  `Win32_Processor` (bukan CPUID string), VRAM GPU asli via registry
+  `HardwareInformation.qwMemorySize`, tipe storage/bus via enum mapping
+  (SSD/HDD/NVMe/SATA/USB), RAM via WMI COM `Win32_PhysicalMemory` (bisa di
+  Win11 24H2 tanpa wmic), kecepatan link jaringan dari string win32com.
+  Terverifikasi 2026-08-06.
+- [x] Smart Scan & Live Telemetry memakai data gaya Task Manager (PDH
+  performance counter: GPU Engine util, GPU Adapter Memory, PhysicalDisk,
+  Network Interface) sehingga berfungsi di semua Windows 10/11 + custom mod
+  (XLite, KernelOS, Ghost Spectre, dll) TANPA perlu MSI Afterburner. Ikon
+  hardware scan memakai Fluent System Icons `currentColor` agar tampil di
+  semua tema. Terverifikasi 2026-08-06.
 - [x] Build EXE wajib pakai PyInstaller **6.16.0** (pinned di
   `requirements-dev.lock`). PyInstaller 6.21+ memicu crash `0xc0000005` di
   bootloader offset `0xa462` ("minimum supported platform is Windows...")

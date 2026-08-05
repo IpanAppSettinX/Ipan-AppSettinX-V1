@@ -21,9 +21,12 @@ const state = {
   hwTitleRunning: false,
   telemetry: {
     cpuSpeed: new Array(60).fill(null),
-    gpuSpeed: new Array(60).fill(null),
     cpuLoad: new Array(60).fill(null),
+    gpuUtil: new Array(60).fill(null),
+    gpuMem: new Array(60).fill(null),
     ramUsed: new Array(60).fill(null),
+    diskActive: new Array(60).fill(null),
+    net: new Array(60).fill(null),
     cpuTemp: new Array(60).fill(null),
     ssdTemp: new Array(60).fill(null),
     gpuTemp: new Array(60).fill(null),
@@ -41,11 +44,11 @@ const RESULT_PRESENTATION_MS = reducedMotion ? 0 : 2200;
 const LOGIN_STAGE_MS = reducedMotion ? 120 : 560;
 
 const hardwareIcons = {
-  cpu: "assets/icons/hw/cpu.svg",
-  gpu: "assets/icons/hw/vga.svg",
-  memory: "assets/icons/hw/memory.svg",
-  storage: "assets/icons/hw/storage.svg",
-  windows: "assets/icons/hw/windows.svg",
+  cpu: "assets/icons/fluent/cpu-24-regular.svg",
+  gpu: "assets/icons/fluent/gpu-24-regular.svg",
+  memory: "assets/icons/fluent/memory-20-regular.svg",
+  storage: "assets/icons/fluent/storage-24-regular.svg",
+  windows: "assets/icons/fluent/windows-24-regular.svg",
 };
 
 const advancedDescriptions = {
@@ -462,6 +465,8 @@ function renderHardwareResults(data) {
             ["Model", g.model],
             ["VRAM", g.vram_mb > 0 ? `${(g.vram_mb / 1024).toFixed(1)} GB` : "N/A"],
             ["Driver", g.driver_version],
+            ["Usage", "Belum diukur"],
+            ["Memory Used", "Belum diukur"],
           ])
         : [["Status", "Tidak terdeteksi"]],
     },
@@ -534,6 +539,8 @@ function renderHardwareResults(data) {
       if (label === "Current Speed") dd.id = "rt-cpu-speed";
       if (label === "Load") dd.id = "rt-cpu-load";
       if (label === "Used") dd.id = "rt-ram-used";
+      if (label === "Usage") dd.id = "rt-gpu-util";
+      if (label === "Memory Used") dd.id = "rt-gpu-mem";
       text(dd, value);
       row.append(dt, dd);
       el.append(row);
@@ -567,25 +574,34 @@ function startTelemetry() {
     try {
       const rt = await invoke("get_realtime_stats");
       const cpuSpeed = (rt.cpu_freq_mhz != null && rt.cpu_freq_mhz > 0) ? rt.cpu_freq_mhz / 1000 : null;
-      const gpuSpeed = (rt.gpu_freq_mhz != null && rt.gpu_freq_mhz > 0) ? rt.gpu_freq_mhz / 1000 : null;
       const cpuLoad = (rt.cpu_percent != null && rt.cpu_percent >= 0) ? rt.cpu_percent : null;
+      const gpuUtil = (rt.gpu_util_percent != null && rt.gpu_util_percent >= 0) ? rt.gpu_util_percent : null;
+      const gpuMem = (rt.gpu_mem_used_mb != null && rt.gpu_mem_used_mb >= 0) ? rt.gpu_mem_used_mb / 1024 : null;
       const ramUsed = (rt.ram_used_mb != null && rt.ram_used_mb >= 0) ? rt.ram_used_mb / 1024 : null;
+      const diskActive = (rt.disk_active_percent != null && rt.disk_active_percent >= 0) ? rt.disk_active_percent : null;
+      const netMbps = (rt.net_bytes_per_sec != null && rt.net_bytes_per_sec >= 0) ? (rt.net_bytes_per_sec * 8) / 1_000_000 : null;
       const cpuTemp = (rt.cpu_temp_c != null && rt.cpu_temp_c > 0) ? rt.cpu_temp_c : null;
       const ssdTemp = (rt.ssd_temp_c != null && rt.ssd_temp_c > 0) ? rt.ssd_temp_c : null;
       const gpuTemp = (rt.gpu_temp_c != null && rt.gpu_temp_c > 0) ? rt.gpu_temp_c : null;
 
       updateTelemetry("cpuSpeed", cpuSpeed, " GHz");
-      updateTelemetry("gpuSpeed", gpuSpeed, " GHz");
       updateTelemetry("cpuLoad", cpuLoad, "%");
+      updateTelemetry("gpuUtil", gpuUtil, "%");
+      updateTelemetry("gpuMem", gpuMem, " GB");
       updateTelemetry("ramUsed", ramUsed, " GB");
+      updateTelemetry("diskActive", diskActive, "%");
+      updateTelemetry("net", netMbps, " Mbps");
       updateTelemetry("cpuTemp", cpuTemp, "°C");
       updateTelemetry("ssdTemp", ssdTemp, "°C");
       updateTelemetry("gpuTemp", gpuTemp, "°C");
 
       drawTelemetryChart("chart-cpu-speed", state.telemetry.cpuSpeed, "#e85a51", 0.5, 6.0, true);
-      drawTelemetryChart("chart-gpu-speed", state.telemetry.gpuSpeed, "#f59e0b", 0.3, 3.0, true);
       drawTelemetryChart("chart-cpu-load", state.telemetry.cpuLoad, "#d4d4d4", 0, 100);
+      drawTelemetryChart("chart-gpu-util", state.telemetry.gpuUtil, "#f59e0b", 0, 100);
+      drawTelemetryChart("chart-gpu-mem", state.telemetry.gpuMem, "#22c55e", 0, 16, true);
       drawTelemetryChart("chart-ram-used", state.telemetry.ramUsed, "#22c55e", 0, 64, true);
+      drawTelemetryChart("chart-disk-active", state.telemetry.diskActive, "#60a5fa", 0, 100);
+      drawTelemetryChart("chart-net", state.telemetry.net, "#a78bfa", 0, 100, true);
       drawTelemetryChart("chart-cpu-temp", state.telemetry.cpuTemp, "#ef4444", 20, 100, true);
       drawTelemetryChart("chart-ssd-temp", state.telemetry.ssdTemp, "#eab308", 20, 80, true);
       drawTelemetryChart("chart-gpu-temp", state.telemetry.gpuTemp, "#ff6b57", 20, 95, true);
@@ -593,9 +609,13 @@ function startTelemetry() {
       const hwCpu = document.querySelector("#rt-cpu-speed");
       const hwCpuLoad = document.querySelector("#rt-cpu-load");
       const hwRam = document.querySelector("#rt-ram-used");
+      const hwGpuUtil = document.querySelector("#rt-gpu-util");
+      const hwGpuMem = document.querySelector("#rt-gpu-mem");
       if (hwCpu) hwCpu.textContent = cpuSpeed != null ? `${cpuSpeed.toFixed(2)} GHz` : "N/A";
       if (hwCpuLoad) hwCpuLoad.textContent = cpuLoad != null ? `${cpuLoad.toFixed(1)}%` : "N/A";
       if (hwRam) hwRam.textContent = ramUsed != null ? `${ramUsed.toFixed(1)} GB` : "N/A";
+      if (hwGpuUtil) hwGpuUtil.textContent = gpuUtil != null ? `${gpuUtil.toFixed(1)}%` : "N/A";
+      if (hwGpuMem) hwGpuMem.textContent = gpuMem != null ? `${gpuMem.toFixed(2)} GB` : "N/A";
     } catch (err) {
       console.error("RT Error:", err);
     }
@@ -607,9 +627,12 @@ function updateTelemetry(key, value, suffix) {
   state.telemetry[key].push(value);
   const labels = {
     cpuSpeed: "#rt-cpu-speed-tm",
-    gpuSpeed: "#rt-gpu-speed-tm",
     cpuLoad: "#rt-cpu-load-tm",
+    gpuUtil: "#rt-gpu-util-tm",
+    gpuMem: "#rt-gpu-mem-tm",
     ramUsed: "#rt-ram-used-tm",
+    diskActive: "#rt-disk-active-tm",
+    net: "#rt-net-tm",
     cpuTemp: "#rt-cpu-temp-tm",
     ssdTemp: "#rt-ssd-temp-tm",
     gpuTemp: "#rt-gpu-temp-tm",
@@ -620,7 +643,9 @@ function updateTelemetry(key, value, suffix) {
     el.textContent = "N/A";
     return;
   }
-  const formatted = key === "cpuSpeed" || key === "gpuSpeed" ? value.toFixed(2) : value.toFixed(1);
+  const formatted = key === "cpuSpeed" || key === "gpuMem" || key === "ramUsed" || key === "net"
+    ? value.toFixed(2)
+    : value.toFixed(1);
   el.textContent = `${formatted}${suffix}`;
 }
 

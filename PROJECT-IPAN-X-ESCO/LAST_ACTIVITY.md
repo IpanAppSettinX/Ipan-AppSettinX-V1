@@ -5,6 +5,151 @@
 > menyelesaikan pekerjaan pada sesi berjalan, agent **wajib memperbarui** file
 > ini (entri terbaru diletakkan paling atas).
 
+## 2026-08-06 — Fix nama prosesor generik + akurasi scan hardware semua device
+
+**Status:** Selesai. Scan hardware kini menampilkan nama prosesor asli
+("AMD Ryzen 5 5500", bukan "AMD64 Family 25 Model 80 Stepping 0,
+AuthenticAMD") dan data per-device akurat (VRAM GPU asli, tipe storage,
+bus, kecepatan RAM, kecepatan link jaringan) untuk semua Windows 10/11
+termasuk custom mod (XLite, KernelOS, dll).
+
+### Masalah
+
+- `_detect_cpu` memakai `platform.processor()` sebagai sumber nama — di
+  Windows ini mengembalikan string CPUID generik ("AMD64 Family 25 Model 0
+  Stepping 0, AuthenticAMD") alih-alih nama pemasaran.
+- GPU `Win32_VideoController.AdapterRAM` bertipe signed 32-bit (cap 4 GB,
+  sering salah/negatif) → VRAM tampil 0.
+- Storage `MSFT_PhysicalDisk.MediaType`/`BusType` adalah enum integer
+  (3=HDD, 4=SSD, 17=NVMe, 7=USB, 11=SATA), tapi kode membandingkannya
+  sebagai string → "0"/"4"/"17" tampil mentah.
+- Network `Win32_NetworkAdapter.Speed` via win32com datang sebagai string
+  ("100000000") → kecepatan link 0.
+- RAM memakai `wmic memorychip` yang dihapus di Windows 11 24H2.
+
+### Perubahan (`src/ipan_optimizer/core/hardware_scanner.py`)
+
+1. `_run_batch_wmi` + fallback PowerShell kini juga query `Win32_Processor`
+   (Name, Manufacturer, NumberOfCores, NumberOfLogicalProcessors,
+   MaxClockSpeed) dan `Win32_VideoController.PNPDeviceID`.
+2. `_detect_cpu`: nama asli dari batch WMI (marketing name), psutil untuk
+   clock, wmic sebagai fallback terakhir.
+3. `_gpu_vram_from_registry`: baca VRAM asli dari
+   `HKLM\...\Control\Class\{4d36e968...}\####\HardwareInformation.qwMemorySize`
+   (QWORD, akurat > 4 GB) dengan fallback `AdapterRAM` (abs).
+4. `_MEDIA_TYPE_MAP` / `_BUS_TYPE_MAP` + `_enum_label` — map enum integer
+   storage ke label (SSD/HDD/NVMe/SATA/USB/dll).
+5. `_detect_ram`: pakai WMI COM `Win32_PhysicalMemory` dulu (berfungsi di
+   Win11 24H2), lalu wmic, lalu psutil.
+6. `_detect_network`: tangani `Speed` bertipe string dari win32com; urutkan
+   adaptor dari link tercepat.
+7. `_detect_storage`: `Manufacturer` None → "Unknown".
+
+### Verifikasi
+
+- `scan_hardware()` di host: CPU "AMD Ryzen 5 5500" 6c/12t, GPU "AMD Radeon
+  RX 6600 XT" VRAM 8176 MB, RAM 16 GB DDR4 2667 MHz (2×8GB), Storage
+  NVMe SSD/HDD SATA/USB benar, NET Realtek GbE 100 Mbps, Windows 10 Pro
+  22H2.
+- Test baru `tests/unit/test_hardware_scanner.py` (6 case) untuk
+  `_enum_label` + `_gpu_vram_from_registry`.
+- Gates: `ruff format --check` ✓, `ruff check` ✓, `mypy src` ✓,
+  `pytest` = 109 passed, 4 deselected, 1 failed pre-existing
+  (`test_emulator_tweak_executes_real_operations` — host tanpa BlueStacks),
+  `check_control_matrix` (58), `check_frontend_policy` ✓,
+  `check_asset_budget` ✓.
+- EXE direbuild PyInstaller 6.16.0 → `dist/Ipan AppSettinX V1.exe`; jalan
+  stabil (window "Ipan AppSettinX", ~103 MB). `dist_new/` masih terlock oleh
+  instance aplikasi yang sedang terbuka (PID 16924/20272 dari Explorer) —
+  ganti setelah aplikasi ditutup.
+
+### File yang diubah
+
+- `src/ipan_optimizer/core/hardware_scanner.py` — CPU/GPU/RAM/storage/network.
+- `tests/unit/test_hardware_scanner.py` — baru.
+
+## 2026-08-06 — Fix ikon Smart Scan + telemetry gaya Task Manager (tanpa MSI Afterburner)
+
+**Status:** Selesai. Ikon Smart Scan diganti ke Fluent `currentColor` (muncul
+di semua Windows, tema gelap/terang, custom mod XLite/KernelOS dll). Telemetry
+Live tidak lagi bergantung pada MSI Afterburner; semua data sekarang dibaca
+dari performance counter PDH yang sama dengan Task Manager (GPU usage, GPU
+memory, disk, network) sehingga bekerja di semua Windows 10/11 termasuk mod
+custom.
+
+### Masalah ikon (user: "gada logo nya di processor,vga,memory,storage,windows")
+
+- Sebelumnya `frontend/js/app.js` memakai ikon kustom `assets/icons/hw/*.svg`
+  yang menempelkan warna hardcoded `#e85a51` di stroke/fill. Ini melanggar
+  policy ikon (DESIGN_SYSTEM: Fluent + `currentColor`) dan pada sebagian
+  sistem/theme ikon tidak tampil.
+- Fix: `hardwareIcons` dipindah ke Fluent System Icons
+  `assets/icons/fluent/*-24-regular.svg` (pakai `currentColor`), sehingga
+  mengikuti `--color-accent` di `.hw-icon` → terlihat di semua tema dan semua
+  Windows (10/11, XLite, KernelOS, Ghost Spectre, dll).
+- File `assets/icons/hw/*.svg` (custom, tidak dipakai) dihapus.
+- Test E2E diperbarui: `"hw/cpu.svg" in first_icon` → `"fluent/" in first_icon`.
+
+### Masalah metode scan (user: "scan dari informasi Task Manager, bukan MSI Afterburner")
+
+Sebelumnya telemetry GPU clock/suhu dibaca dari MSI Afterburner
+(`MAHMSharedMemory`) + nvidia-smi; tanpa Afterburner data GPU kosong.
+
+Sekarang `adapters/windows/telemetry.py`:
+
+- `TelemetrySample` bertambah: `gpu_util_percent`, `gpu_mem_used_mb`,
+  `disk_active_percent`, `disk_bytes_per_sec`, `net_bytes_per_sec`.
+- `_PdhTaskManagerSampler` baru — membaca counter PDH yang sama dengan
+  Task Manager:
+  - `\GPU Engine(*)\Utilization Percentage` (enumerate + sum per engine,
+    karena wildcard tidak agregasi) → `gpu_util_percent`.
+  - `\GPU Adapter Memory(*)\Dedicated Usage` (enumerate + sum) →
+    `gpu_mem_used_mb`.
+  - `\PhysicalDisk(_Total)\% Disk Time` + `\Disk Bytes/sec` → disk.
+  - `\Network Interface(*)\Bytes Total/sec` → net.
+  - Refresh di thread background (`_SlowSensorCache._refresh_once`), `read()`
+    non-blocking, fail-closed `None` bila counter tidak tersedia.
+- CPU load/freq tetap PDH; RAM tetap psutil; suhu CPU/GPU/SSD tetap best-effort
+  (MAHM/nvidia-smi/WMI/OHM hanya pelengkap, bukan syarat).
+- `app/service.py::get_realtime_stats` meneruskan field baru.
+
+### Frontend
+
+- `index.html`: telemetry panel kini 10 kartu — CPU Speed, CPU Load, GPU Usage,
+  GPU Memory, RAM Usage, Disk Active, Network, CPU Temp, SSD Temp, VGA Temp.
+  Kartu "GPU Clock" (butuh MSI Afterburner) diganti "GPU Usage" + "GPU Memory".
+  Teks deskripsi diperbarui ("sumber: performance counter Windows, sama seperti
+  Task Manager").
+- `app.js`: state.telemetry + updateTelemetry + drawTelemetryChart diperbarui
+  untuk 10 metrik; baris live di kartu VGA (Usage, Memory Used) ikut terisi.
+- `bridge.js` fallback `get_realtime_stats` menyesuaikan field baru.
+
+### Verifikasi
+
+- Gates: `ruff format --check` ✓, `ruff check` ✓, `mypy src` ✓,
+  `pytest` = 103 passed, 4 deselected, 1 failed pre-existing
+  (`test_emulator_tweak_executes_real_operations` — host tanpa BlueStacks),
+  `check_control_matrix` (58), `check_frontend_policy` ✓,
+  `check_asset_budget` ✓ (total 263,082 bytes).
+- `read_telemetry()` di host: cpu_freq 3232 MHz, gpu_util 62.5%,
+  gpu_mem 3124 MB, disk active 16%, net 0-51 MB/s — data Task Manager terisi
+  tanpa MSI Afterburner.
+- UI (Playwright + stub): 5 kartu `.hw-icon img` render (naturalWidth 24/20)
+  dari `assets/icons/fluent/*.svg`; telemetry panel 10 kartu tampil.
+- EXE direbuild dengan PyInstaller 6.16.0 → `dist_new/Ipan AppSettinX V1.exe`
+  (16,891,439 bytes), jalan stabil 15+ detik, window "Ipan AppSettinX",
+  Responding=True, mem ~103 MB.
+
+### File yang diubah
+
+- `src/ipan_optimizer/adapters/windows/telemetry.py` — Task Manager sampler.
+- `src/ipan_optimizer/app/service.py` — field realtime stats.
+- `src/ipan_optimizer/frontend/index.html` — panel telemetry 10 kartu.
+- `src/ipan_optimizer/frontend/js/app.js` — ikon Fluent + telemetry baru.
+- `src/ipan_optimizer/frontend/js/bridge.js` — fallback realtime stats.
+- `src/ipan_optimizer/frontend/assets/icons/hw/*.svg` — dihapus (custom).
+- `tests/ui/test_e2e.py` — asersi ikon Fluent.
+
 ## 2026-08-06 — Fix crash "minimum supported platform" + cocokkan EXE dengan project
 
 **Status:** Selesai. Root cause ditemukan dan diperbaiki: build ulang pakai
