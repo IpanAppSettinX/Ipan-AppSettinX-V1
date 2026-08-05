@@ -13,6 +13,26 @@ aplikasi mengirim SHA-256 yang di-scope ke project.
 Seluruh fitur ini berjalan di paket Firebase **Spark (gratis)** — tidak perlu
 Cloud Functions, tidak perlu mendaftarkan metode pembayaran.
 
+## License key = UID akun Firebase
+
+License key pada form login **adalah UID akun Firebase**. Ketika admin membuat
+akun user baru di Firebase Console (Authentication > Users), Firebase
+mengeluarkan sebuah **UID** (identitas unik akun, mis. `Xf3kQ9LpZ2vB7...`).
+UID tersebut adalah license key yang diberikan ke pelanggan. Saat pelanggan
+login ke aplikasi:
+
+1. Aplikasi melakukan sign-in Email/Password ke Firebase Identity Toolkit.
+2. Firebase mengembalikan `localId` = UID akun yang bersangkutan.
+3. Aplikasi membandingkan license key yang diketik user dengan UID tersebut.
+   **License key harus sama persis dengan UID.** Bila tidak sama, login
+   ditolak (fail-closed) — ini mencegah akun dipakai dengan license key yang
+   bukan miliknya.
+4. Baru setelah itu akun diikat ke perangkat lewat Firestore rules.
+
+Jadi untuk setiap akun yang dibuat di Firebase, UID yang muncul di Firebase
+Console adalah license key yang harus dimasukkan user saat login. Reset
+akun/binding tetap melalui admin di Console.
+
 ## Setup admin
 
 1. Di Firebase Console, aktifkan Authentication > Sign-in method > Email/Password.
@@ -41,6 +61,6 @@ Client tidak memiliki izin update/delete pada koleksi tersebut.
 
 Firebase Web API key bukan secret. Keamanan berasal dari Firebase Auth,
 validasi ID token oleh Firestore, aturan `firestore.rules` yang menolak
-tulis yang bentrok, dan pembatasan API key di Google Cloud Console. Bila
-aturan belum di-deploy atau menolak permintaan, aplikasi gagal-tertutup
-(fail-closed) dan login ditolak.
+tulis yang bentrok, verifikasi license key = UID, dan pembatasan API key di
+Google Cloud Console. Bila aturan belum di-deploy atau menolak permintaan,
+aplikasi gagal-tertutup (fail-closed) dan login ditolak.

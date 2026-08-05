@@ -99,6 +99,10 @@
 
 ## Firebase member authentication
 
+- [x] License key login = **UID akun Firebase**: setelah sign-in Email/Password,
+  aplikasi membandingkan license key dengan `localId` (UID); tidak cocok →
+  login ditolak fail-closed. UID yang tampil di Firebase Console adalah license
+  key untuk pelanggan. Terverifikasi 2026-08-06.
 - [x] Replace the placeholder login rejection with typed Firebase Email/Password authentication.
 - [x] Add fail-closed one-account/one-device binding enforced by Firestore Security Rules (atomic `commit`, no Cloud Functions required).
 - [x] Hash the app-scoped Windows identifier locally and never transmit its raw value.

@@ -50,7 +50,7 @@ def test_authentication_rejects_invalid_credentials(
     from ipan_optimizer.app import auth
 
     monkeypatch.setattr(auth, "_https_request", fake_request)
-    response = bridge.authenticate("member@example.com", "password-salah")
+    response = bridge.authenticate("member@example.com", "password-salah", "uid-1")
     assert response["success"] is False
     assert response["error"]["code"] == "VALIDATION_ERROR"
 

@@ -46,7 +46,7 @@ def test_authentication_binds_new_device_with_atomic_commit(
         },
     )
 
-    result = auth.authenticate(" member@example.com ", "password-valid", "IPAN-KEY-001")
+    result = auth.authenticate(" member@example.com ", "password-valid", "uid-1")
 
     assert result == {"email": "member@example.com", "state": "AUTHORIZED"}
     assert calls[0][1] == {
@@ -89,7 +89,7 @@ def test_authentication_accepts_existing_matching_binding(
         },
     )
 
-    result = auth.authenticate("member@example.com", "password-valid", "IPAN-KEY-001")
+    result = auth.authenticate("member@example.com", "password-valid", "uid-1")
 
     assert result["state"] == "AUTHORIZED"
     assert [call[3] for call in calls] == ["POST", "GET"]
@@ -108,7 +108,7 @@ def test_authentication_rejects_account_bound_to_other_device(
     )
 
     with pytest.raises(ValueError, match="sudah terikat ke perangkat lain"):
-        auth.authenticate("member@example.com", "password-valid", "IPAN-KEY-001")
+        auth.authenticate("member@example.com", "password-valid", "uid-1")
 
 
 def test_authentication_fails_closed_when_rules_reject_commit(
@@ -127,7 +127,7 @@ def test_authentication_fails_closed_when_rules_reject_commit(
     )
 
     with pytest.raises(ValueError, match="sudah terikat ke perangkat lain"):
-        auth.authenticate("member@example.com", "password-valid", "IPAN-KEY-001")
+        auth.authenticate("member@example.com", "password-valid", "uid-1")
 
 
 def test_authentication_rejects_invalid_session_token(
@@ -141,4 +141,42 @@ def test_authentication_rejects_invalid_session_token(
     )
 
     with pytest.raises(ValueError, match="Token login tidak valid"):
-        auth.authenticate("member@example.com", "password-valid", "IPAN-KEY-001")
+        auth.authenticate("member@example.com", "password-valid", "uid-1")
+
+
+def test_authentication_rejects_license_key_not_matching_uid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """License key must be the Firebase UID of the signed-in account."""
+    _install_fake_http(
+        monkeypatch,
+        {
+            ("POST", f"{auth.AUTH_URL}?key={auth.FIREBASE_API_KEY}"): _fake_session(
+                uid="real-uid-42"
+            ),
+        },
+    )
+
+    with pytest.raises(ValueError, match="License key tidak sesuai dengan akun"):
+        auth.authenticate("member@example.com", "password-valid", "uid-1")
+
+
+def test_authentication_accepts_license_key_matching_uid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the license key equals the Firebase UID, login proceeds."""
+    user_doc = f"{auth.FIRESTORE_BASE}/deviceUsers/real-uid-42"
+    _install_fake_http(
+        monkeypatch,
+        {
+            ("POST", f"{auth.AUTH_URL}?key={auth.FIREBASE_API_KEY}"): _fake_session(
+                uid="real-uid-42"
+            ),
+            ("GET", user_doc): auth._DocumentNotFound(),
+            ("POST", f"{auth.FIRESTORE_BASE}:commit"): {},
+        },
+    )
+
+    result = auth.authenticate("member@example.com", "password-valid", "real-uid-42")
+
+    assert result["state"] == "AUTHORIZED"

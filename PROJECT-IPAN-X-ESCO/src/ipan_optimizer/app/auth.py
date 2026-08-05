@@ -146,6 +146,16 @@ def bind_device(uid: str, device_hash: str, token: str) -> None:
 
 
 def authenticate(username: str, password: str, license_key: str = "") -> dict[str, str]:
+    """Authenticate against Firebase and verify the license key is the account UID.
+
+    Flow:
+    1. Sign in with Email/Password. Firebase returns ``localId``, the stable
+       UID assigned when the account was created in Firebase Auth.
+    2. Verify the user-supplied license key is exactly that UID. The license
+       key is the account UID: when an account is created in the Firebase
+       Console, the UID shown there is the license the customer must enter.
+    3. Bind the account to one device via Firestore Security Rules.
+    """
     username = username.strip()
     license_key = license_key.strip()
     if not username or len(username) > 254 or not password or len(password) > 128:
@@ -161,6 +171,10 @@ def authenticate(username: str, password: str, license_key: str = "") -> dict[st
     uid = session.get("localId")
     if not isinstance(token, str) or not token or not isinstance(uid, str) or not uid:
         raise ValueError("Token login tidak valid.")
+    if license_key != uid:
+        raise ValueError(
+            "License key tidak sesuai dengan akun. Gunakan UID akun dari Firebase Authentication."
+        )
     device_hash = device_fingerprint()
     if len(device_hash) != DEVICE_HASH_LENGTH:
         raise ValueError("Identitas perangkat tidak valid.")

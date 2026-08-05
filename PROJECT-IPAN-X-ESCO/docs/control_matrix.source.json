@@ -5,13 +5,13 @@
       "control_id": "auth.login",
       "route": "login",
       "label": "Login",
-      "intent": "Autentikasi Firebase dan validasi binding lisensi perangkat",
+      "intent": "Autentikasi Firebase, verifikasi license key = UID akun, dan validasi binding lisensi perangkat",
       "handler": "runLoginSequence",
       "bridge_method": "authenticate",
-      "backend_operation": "Firebase sign-in and atomic Firestore rules device binding",
+      "backend_operation": "Firebase sign-in, license key equals account UID, atomic Firestore rules device binding",
       "risk_permission": "account credential input",
       "states": "ready, loading, validation error, access locked, authorized",
-      "verification": "shell unlocks only after Firebase token and device binding are accepted",
+      "verification": "shell unlocks only after license key matches account UID, Firebase token, and device binding are accepted",
       "test_ids": ["UI-CONTROL-AUTH-LOGIN"]
     },
     {

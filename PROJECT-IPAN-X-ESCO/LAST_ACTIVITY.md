@@ -5,6 +5,31 @@
 > menyelesaikan pekerjaan pada sesi berjalan, agent **wajib memperbarui** file
 > ini (entri terbaru diletakkan paling atas).
 
+## 2026-08-06 — License key = UID akun Firebase
+
+**Status:** Selesai. License key pada login kini harus sama persis dengan UID
+akun Firebase (diambil dari `localId` hasil sign-in). Gates lulus; pytest 111
+passed, 1 fail pre-existing (BlueStacks).
+
+### Konsep
+
+- Saat admin membuat akun user di Firebase Auth, Firebase mengeluarkan UID.
+- UID itulah license key yang diberikan ke pelanggan.
+- Login: sign-in Email/Password → Firebase mengembalikan `localId` (UID) →
+  aplikasi membandingkan `license_key == uid` → cocok baru lanjut bind device.
+
+### Perubahan
+
+- `app/auth.py::authenticate`: tambah `if license_key != uid: raise` (fail-closed).
+- `frontend/index.html`: label "License Key (UID Akun)", placeholder UID,
+  note menjelaskan license key = UID.
+- `docs/FIREBASE_AUTH.md`: section "License key = UID akun Firebase".
+- `docs/control_matrix.source.json` + `docs/CONTROL_MATRIX.md`: deskripsi
+  `auth.login` diperbarui.
+- Test: `tests/unit/test_auth.py` license key diubah ke `uid-1`; tambah 2 test
+  (reject key≠uid, accept key=uid). `tests/integration/test_api.py` pass
+  license key saat uji credential salah.
+
 ## 2026-08-06 — Fix nama prosesor generik + akurasi scan hardware semua device
 
 **Status:** Selesai. Scan hardware kini menampilkan nama prosesor asli

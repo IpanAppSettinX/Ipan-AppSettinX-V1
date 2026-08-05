@@ -120,8 +120,8 @@
                 <button type="button" class="password-toggle" data-control-id="auth.password_toggle" aria-label="Tampilkan password" aria-pressed="false">SHOW</button>
               </span>
             </label>
-            <label for="login-license">License Key
-              <input id="login-license" name="license_key" type="text" autocomplete="off" spellcheck="false" maxlength="128" placeholder="Masukkan license key" required>
+            <label for="login-license">License Key (UID Akun)
+              <input id="login-license" name="license_key" type="text" autocomplete="off" spellcheck="false" maxlength="128" placeholder="UID akun dari Firebase Authentication" required>
             </label>
             <div class="remember-toggle" data-control-id="auth.remember">
               <input id="login-remember" name="remember" type="checkbox" hidden>
@@ -130,7 +130,7 @@
               </span>
               <span class="remember-label">Ingat saya dalam 30 hari</span>
             </div>
-            <div class="license-state"><span>DEVICE LICENSE</span><small>Satu akun untuk satu perangkat aktif</small></div>
+            <div class="license-state"><span>DEVICE LICENSE</span><small>License key = UID akun · satu akun untuk satu perangkat aktif</small></div>
             <p id="login-status" class="login-status" role="status" aria-live="polite"></p>
             <button type="submit" class="primary login-submit" data-control-id="auth.login">
               <span>Login</span><span aria-hidden="true">→</span>
@@ -144,7 +144,7 @@
               <span class="action-number">02</span><span class="login-link-copy"><b>Reset HWID</b><small>Akun bermasalah, atau ganti windows dan akun tidak bisa dipakai? langsung Reset HWID aja! Bayar sekali, pakai selamanya</small></span><span class="login-link-cta" aria-hidden="true">WHATSAPP ↗</span>
             </button>
           </div>
-          <p class="login-license-note">Akun dibuat oleh admin setelah pembelian terverifikasi.</p>
+          <p class="login-license-note">Akun dibuat oleh admin setelah pembelian terverifikasi. License key adalah UID akun yang ditampilkan di Firebase Authentication.</p>
         </div>
       </div>
 
