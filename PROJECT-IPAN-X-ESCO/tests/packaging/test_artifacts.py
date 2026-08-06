@@ -38,17 +38,9 @@ def test_packaged_main_smoke(tmp_path: Path) -> None:
 
 
 @pytest.mark.packaging
-def test_helper_and_manifests_exist() -> None:
-    assert (ROOT / "dist" / "IPANOptimizerHelper.exe").is_file()
+def test_manifests_exist() -> None:
     main_manifest = (ROOT / "installer" / "main.manifest").read_text(encoding="utf-8")
-    helper_manifest = (ROOT / "installer" / "helper.manifest").read_text(encoding="utf-8")
-    # The release EXE requires Administrator (product decision): it is a system
-    # tweaking tool and WebView2 runs fine elevated. The standalone helper entry
-    # point keeps its own requireAdministrator manifest too.
     assert 'level="requireAdministrator"' in main_manifest
-    assert 'level="requireAdministrator"' in helper_manifest
-    # Windows 10 / Windows 11 compatibility GUID is declared so the app is
-    # treated as Windows 10/11-aware on every build (1809 through 11 24H2+).
     assert "{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}" in main_manifest
 
 

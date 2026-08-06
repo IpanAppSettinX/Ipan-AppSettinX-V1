@@ -1,22 +1,18 @@
 # -*- mode: python ; coding: utf-8 -*-
+import platform as _platform
 from pathlib import Path
 
 ROOT = Path(SPECPATH).parent
 SRC = ROOT / "src"
 PACKAGE = SRC / "ipan_optimizer"
 
-# Bundle the official Microsoft Edge WebView2 Runtime bootstrapper so the app
-# can auto-install the runtime when missing. The developer must download
-# MicrosoftEdgeWebview2Setup.exe from
-# https://developer.microsoft.com/microsoft-edge/webview2/ and place it in
-# src/ipan_optimizer/data/ before building. If absent, the build still
-# succeeds but the auto-install path will not be available at runtime.
-bootstrapper = PACKAGE / "data" / "MicrosoftEdgeWebview2Setup.exe"
+_build_machine = _platform.machine().upper()
+if _build_machine not in {"AMD64", "X86_64"}:
+    raise SystemExit(
+        f"Build harus dijalankan pada x64 (AMD64). Terdeteksi: {_build_machine}"
+    )
 
-# WebView2 Fixed Version Runtime (optional, ~250 MB). Excluded from onefile
-# builds — extracting 250 MB to temp on every startup adds 3-5 s delay.
-# The bootstrapper (172 KB) handles WebView2 install when missing.
-fixed_runtime = PACKAGE / "data" / "webview2_fixed"
+bootstrapper = PACKAGE / "data" / "MicrosoftEdgeWebview2Setup.exe"
 
 datas = [
     (str(PACKAGE / "frontend"), "ipan_optimizer/frontend"),
