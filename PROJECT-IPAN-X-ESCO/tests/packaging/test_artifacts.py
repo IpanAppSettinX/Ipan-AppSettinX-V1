@@ -42,8 +42,9 @@ def test_helper_and_manifests_exist() -> None:
     assert (ROOT / "dist" / "IPANOptimizerHelper.exe").is_file()
     main_manifest = (ROOT / "installer" / "main.manifest").read_text(encoding="utf-8")
     helper_manifest = (ROOT / "installer" / "helper.manifest").read_text(encoding="utf-8")
-    # Main EXE auto-elevates so tweaks that require Administrator (HKLM,
-    # services, powercfg, bcdedit) work without a manual "Run as administrator".
+    # The release EXE requires Administrator (product decision): it is a system
+    # tweaking tool and WebView2 runs fine elevated. The standalone helper entry
+    # point keeps its own requireAdministrator manifest too.
     assert 'level="requireAdministrator"' in main_manifest
     assert 'level="requireAdministrator"' in helper_manifest
     # Windows 10 / Windows 11 compatibility GUID is declared so the app is

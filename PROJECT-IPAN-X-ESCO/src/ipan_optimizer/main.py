@@ -17,6 +17,7 @@ from ipan_optimizer.domain.models import MachineCapabilityVector
 from ipan_optimizer.logging_config import configure_logging
 from ipan_optimizer.persistence.database import Database
 from ipan_optimizer.ports.windows import WindowsBackend
+from ipan_optimizer.privileged.runner import execute_plan_file
 
 
 @dataclass(frozen=True)
@@ -176,7 +177,25 @@ def main() -> int:
     )
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--no-window", action="store_true")
+    parser.add_argument(
+        "--apply-plan",
+        type=str,
+        default=None,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--result",
+        type=str,
+        default=None,
+        help=argparse.SUPPRESS,
+    )
     args = parser.parse_args()
+    if args.apply_plan:
+        if not args.result:
+            return 2
+        # Elevated one-shot mode: applies a signed tweak plan and writes the
+        # results JSON, then exits. Never starts the WebView2 UI here.
+        return execute_plan_file(Path(args.apply_plan), Path(args.result))
     del args.dry_run
     runtime = create_runtime()
     if not args.no_window:

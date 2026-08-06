@@ -11,69 +11,10 @@ powercfg changes are best-effort and may require admin elevation.
 
 from __future__ import annotations
 
-import os
-import subprocess
-import sys
 from dataclasses import dataclass, field
 from typing import Any
 
-_CMD_INTERNAL_COMMANDS = frozenset(
-    {
-        "del",
-        "rd",
-        "rmdir",
-        "start",
-        "copy",
-        "move",
-        "md",
-        "mkdir",
-        "ren",
-        "rename",
-        "type",
-        "echo",
-        "set",
-        "call",
-        "for",
-        "if",
-        "pushd",
-        "popd",
-        "attrib",
-        "cacls",
-        "format",
-        "label",
-        "vol",
-        "chdir",
-        "cd",
-        "cls",
-        "color",
-        "date",
-        "time",
-        "title",
-        "ver",
-        "verify",
-    }
-)
-
-
-def _resolve_command(command: list[str]) -> list[str]:
-    """Expand env vars and resolve CMD internal commands.
-
-    ``subprocess.run(shell=False)`` cannot expand ``%TEMP%`` or run CMD
-    builtins like ``del``/``rd``. This helper:
-    1. Expands ``%VAR%`` patterns in every argument via ``os.path.expandvars``.
-    2. Detects CMD internal commands (``del``, ``rd``, ``start``, ...) and
-       wraps them as ``["cmd", "/c", *expanded]``.
-    3. Leaves real executables (``reg.exe``, ``sc.exe``, ``bcdedit.exe``)
-       unchanged; Windows ``CreateProcess`` resolves them via ``PATH`` even
-       without the ``.exe`` suffix.
-    """
-    if not command:
-        return command
-    expanded = [os.path.expandvars(arg) for arg in command]
-    if expanded[0].lower() in _CMD_INTERNAL_COMMANDS:
-        return ["cmd", "/c", *expanded]
-    return expanded
-
+from ipan_optimizer.privileged.runner import run_elevated_steps, run_step
 
 _PREFETCH = (
     r"SYSTEM\CurrentControlSet\Control\Session Manager"
@@ -2657,39 +2598,6 @@ FIXES_TWEAK_COMMANDS: dict[str, list[TweakStep]] = {
 }
 
 
-def _run_step(step: TweakStep) -> dict[str, Any]:
-    if sys.platform != "win32":
-        return {
-            "description": step.description,
-            "success": False,
-            "error": "Tweak hanya berjalan di Windows.",
-        }
-    try:
-        resolved = _resolve_command(step.command)
-        result = subprocess.run(  # noqa: S603 -- trusted local commands; env vars expanded, CMD internals wrapped.
-            resolved,
-            capture_output=True,
-            text=True,
-            timeout=30,
-            shell=False,
-        )
-        ok = result.returncode == 0
-        return {
-            "description": step.description,
-            "success": ok,
-            "stdout": result.stdout.strip()[:500] if result.stdout else "",
-            "stderr": result.stderr.strip()[:500] if result.stderr else "",
-            "requires_admin": step.requires_admin,
-        }
-    except (OSError, subprocess.SubprocessError) as exc:
-        return {
-            "description": step.description,
-            "success": False,
-            "error": str(exc),
-            "requires_admin": step.requires_admin,
-        }
-
-
 def execute_tweak(tweak_id: str, title: str) -> TweakResult:
     steps_def = (
         ADVANCED_TWEAK_COMMANDS.get(tweak_id)
@@ -2700,9 +2608,18 @@ def execute_tweak(tweak_id: str, title: str) -> TweakResult:
     )
     if not steps_def:
         raise ValueError(f"Tweak {tweak_id} tidak memiliki definisi operasi.")
+
+    # Steps that need an Administrator token are executed once per tweak
+    # through a single UAC elevation (self-elevation of the release EXE).
+    # User-scope steps (HKCU etc.) run directly in-process.
+    normal_steps = [step for step in steps_def if not step.requires_admin]
+    admin_steps = [step for step in steps_def if step.requires_admin]
+
     result = TweakResult(tweak_id=tweak_id, title=title, success=True)
-    for step in steps_def:
-        outcome = _run_step(step)
+    outcomes = [run_step(step) for step in normal_steps]
+    if admin_steps:
+        outcomes += run_elevated_steps(admin_steps, tweak_id)
+    for outcome in outcomes:
         result.steps.append(outcome)
         if outcome["success"]:
             result.applied += 1
@@ -2712,16 +2629,16 @@ def execute_tweak(tweak_id: str, title: str) -> TweakResult:
     if result.applied == 0 and result.failed > 0:
         result.message = (
             f"{title}: semua operasi gagal. "
-            "Jalankan aplikasi sebagai Administrator untuk tweak HKLM/service. "
-            "Pada Windows custom (AtlasOS/ReviOS/Ghost Spectre/dll.) beberapa "
-            "service mungkin sudah dihapus sehingga tweak terkait tidak bisa "
-            "diterapkan."
+            "Tweak yang butuh hak Administrator tidak bisa diterapkan bila "
+            "elevasi (UAC) dibatalkan. Pada Windows custom "
+            "(AtlasOS/ReviOS/Ghost Spectre/dll.) beberapa service mungkin "
+            "sudah dihapus sehingga tweak terkait tidak bisa diterapkan."
         )
         result.success = False
     elif result.failed > 0:
         result.message = (
             f"{title}: {result.applied} operasi berhasil, {result.failed} gagal "
-            "(kemungkinan butuh hak Administrator, atau service/target sudah "
+            "(kemungkinan elevasi UAC dibatalkan, atau service/target sudah "
             "dihapus pada Windows custom)."
         )
     else:

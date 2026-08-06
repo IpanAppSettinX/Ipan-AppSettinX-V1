@@ -31,19 +31,23 @@ The following production behaviours intentionally override the default safety
 contract above. They are confined to the packaged release EXE and installer,
 never to test runs, and each carries a documented mitigation.
 
-1. **`asInvoker` execution level (was `requireAdministrator`).** The
-   release EXE runs as the invoking user; elevation is requested on demand
-   via `ShellExecute "runas"` from Python when an operation needs HKLM/`sc
-   config`/`powercfg`/`bcdedit`. Rationale: `requireAdministrator` +
-   PE timestamp 1970 (PyInstaller default) triggered Windows
-   `apphelp.dll` injection → Control Flow Guard trap → silent crash
-   (`0xc0000005`) on Windows 10 19045 and several custom/modified Windows
-   builds (Ghost Spectre with UAC disabled, ReviOS, tiny11 Core, XLite).
-   `asInvoker` keeps the bootloader compatible with UAC-disabled hosts and
-   avoids PCA shim injection. Mitigation: tests never execute privileged
-   tweaks; the Dry Run overlay remains the default backend in development;
-   the privileged helper (`helper.spec`) is still a separate binary with
-   its own manifest and signed-plan validation boundary.
+1. **`requireAdministrator` execution level (release EXE).** The release EXE
+   must run elevated (UAC on double-click). It is a system-tweaking tool
+   (HKLM Registry, services, `powercfg`, `bcdedit`) and WebView2 has been
+   verified to run fine elevated on this stack. Privileged tweak steps are
+   executed directly with the elevated token (see
+   `src/ipan_optimizer/privileged/runner.py`); the `runner` module also keeps
+   a self-elevation path (`ShellExecuteExW "runas"` → `--apply-plan`) that is
+   used only if the EXE is ever built `asInvoker`. Historical note: an earlier
+   `asInvoker` + relaunch-guard design (see LAST_ACTIVITY 2026-08-06) was
+   replaced because the product requirement is that the app MUST run as
+   administrator. `requireAdministrator` + the old 1970-timestamp PyInstaller
+   bootloader previously triggered `apphelp` injection → `0xc0000005`; current
+   builds (PyInstaller 6.21, patched header with real TimeDateStamp + CheckSum)
+   run elevated cleanly. Mitigation: tests set
+   `IPAN_OPTIMIZER_NO_ELEVATION=1` (autouse fixture in `tests/conftest.py`) so
+   no host mutation beyond existing integration tests happens in CI; the Dry
+   Run overlay remains the default backend in development.
 2. **Automatic WebView2 runtime install.** When the Microsoft Edge WebView2
    Runtime is missing, the app launches the official Microsoft bootstrapper
    (`MicrosoftEdgeWebview2Setup.exe`) bundled under
@@ -85,15 +89,36 @@ python scripts/check_asset_budget.py
 
 ## Packaging build (release EXE)
 
-- **Must use the pinned `pyinstaller==6.16.0`** (see `requirements-dev.lock`).
-  Do not build with PyInstaller 6.21+ in the global interpreter: its new
-  onefile bootloader layout (archive embedded in `.reloc`, PE `SizeOfImage`
-  spanning the whole file) triggers Windows `apphelp`/Control Flow Guard
-  injection → silent crash `0xc0000005` at bootloader offset `0xa462` before
-  Python loads, on Windows 10 19045. The 6.16 classic layout (archive appended
-  after the image, small `SizeOfImage`, ASLR enabled) runs correctly.
-- Build: `python -m PyInstaller --clean --noconfirm installer/ipan_optimizer.spec`
-- Output: `dist/Ipan AppSettinX V1.exe` (single file).
+- **Build with PyInstaller 6.21.0 from the global interpreter
+  `C:\Python312`** (the pinned venv keeps `pyinstaller==6.16.0` for gates
+  only — PyInstaller is not part of the test gates). Earlier builds pinned
+  6.16.0 because of a misdiagnosis: the intermittent `0xc0000005` at
+  bootloader offset `0xa462` was blamed on PyInstaller 6.21, but it is a
+  host-environment problem (it also crashes `ruff.exe`, an unrelated Rust
+  binary, at the same offset). On this host the 6.16 bootloader's appended
+  onefile layout is rejected at load time ("not a valid application for this
+  OS platform") while the 6.21 bootloader loads and runs correctly.
+- Build: `C:\Python312\python.exe -m PyInstaller --clean --noconfirm installer/ipan_optimizer.spec`
+- Output: `dist/Ipan AppSettinX V1.exe` (single file). Copy to
+  `dist_new/` so both locations ship the same artifact.
+- **Verify before shipping:**
+  `python scripts/verify_exe.py "dist/Ipan AppSettinX V1.exe"` — checks the
+  PE (x64, GUI subsystem, sane subsystem version), that the manifest is
+  `requireAdministrator`, and that `--no-window` starts and exits 0 (launched
+  elevated). Do not ship an EXE that fails this.
+- **The release EXE requires Administrator.** Double-clicking shows a UAC
+  prompt and the app runs elevated; every tweak (Tweak Menu, Advanced Menu,
+  AppSensiX) is then applied directly with the elevated token — HKLM registry,
+  service config, powercfg, bcdedit all actually take effect. There is no
+  per-tweak UAC and no "Run as administrator is forbidden" guard.
+- **Never run the release EXE "as administrator".** The app is `asInvoker`
+  and elevates on demand. Running it elevated breaks the WebView2 host and
+  surfaces "minimum supported platform is Windows..." errors. `main.py`
+  detects elevation and relaunches without elevation
+  (`_is_elevated` / `_relaunch_without_elevation`).
+- The host occasionally kills process startups (the `0xa462` crash). When an
+  EXE fails to start, retry; check the app log at
+  `%LOCALAPPDATA%\IPAN Optimizer\logs\ipan-optimizer.jsonl`.
 
 ## Definition of done
 

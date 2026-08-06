@@ -11,6 +11,12 @@ from ipan_optimizer.core.journal import RecoveryJournal
 from ipan_optimizer.core.transactions import TransactionManager
 
 
+@pytest.fixture(autouse=True)
+def _no_elevation(monkeypatch) -> None:
+    """Never trigger a UAC prompt or host elevation during the test run."""
+    monkeypatch.setenv("IPAN_OPTIMIZER_NO_ELEVATION", "1")
+
+
 @pytest.fixture
 def backend() -> FakeWindowsBackend:
     return FakeWindowsBackend()

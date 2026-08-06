@@ -90,5 +90,6 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     manifest=str(ROOT / "installer" / "main.manifest"),
+    uac_admin=True,
     icon=str(PACKAGE / "frontend" / "assets" / "ipan-store-logo.ico"),
 )

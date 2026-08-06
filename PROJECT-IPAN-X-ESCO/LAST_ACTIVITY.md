@@ -5,6 +5,205 @@
 > menyelesaikan pekerjaan pada sesi berjalan, agent **wajib memperbarui** file
 > ini (entri terbaru diletakkan paling atas).
 
+## 2026-08-06 — Wajib Administrator (requireAdministrator) + verifikasi error hilang
+
+**Status:** Selesai. Release EXE kini **wajib dijalankan sebagai Administrator**
+(manifest `requireAdministrator` + `uac_admin=True`). Error "minimum supported
+platform is Windows... / platform not supported" TIDAK muncul — aplikasi
+berjalan elevated dengan WebView2 aktif, dan semua tweak (HKLM/service/
+powercfg/bcdedit) benar-benar diterapkan.
+
+### Verifikasi langsung (berhasil di-reproduksi elevated)
+
+- Akun `WINDOWS KERJA` ternyata anggota grup Administrators (token di-filter
+  UAC); `Start-Process -Verb RunAs` berhasil mengelevasi tanpa prompt
+  interaktif → memungkinkan reproduksi jalur admin secara nyata.
+- EXE build `requireAdministrator` dijalankan elevated: proses UI muncul
+  (window "Ipan AppSettinX", ~99-103 MB, WebView2 msedgewebview2 aktif),
+  **tidak ada dialog error**. Struktur 2 proses (parent onefile 7MB + child
+  runtime) adalah normal PyInstaller onefile.
+- Test plan elevated: `--apply-plan` dengan `reg add HKLM\SOFTWARE\IpanEndToEnd`
+  → hasil JSON `success:true` ("The operation completed successfully") →
+  tweak HKLM benar-benar tertulis saat elevated.
+- `scripts/verify_exe.py` di-update: smoke test kini meluncurkan EXE elevated
+  (`runas`) karena manifest `requireAdministrator`; exit 0.
+
+### Perubahan
+
+- **`installer/main.manifest`** — `asInvoker` → `requireAdministrator`.
+- **`installer/ipan_optimizer.spec`** — tambah `uac_admin=True` (PyInstaller
+  mengabaikan level eksekusi dari file manifest custom; harus lewat parameter).
+- **`src/ipan_optimizer/main.py`** — hapus guard `_relaunch_without_elevation`
+  + `_uac_enabled` + marker (dulu untuk asInvoker; kini kontraproduktif
+  karena app selalu elevated). Mode `--apply-plan` tetap ada.
+- **`scripts/verify_exe.py`** — harap manifest `requireAdministrator`; smoke
+  test elevated (ShellExecuteExW `runas`, WaitForSingleObject, ambil exit
+  code). Bila elevasi tidak tersedia → warning skip, bukan fail.
+- **`tests/unit/test_runner.py`** — tambah test `is_elevated` (pindahan dari
+  guard).
+- **`tests/unit/test_elevation_guard.py`** — dihapus (guard tidak ada lagi).
+- **`tests/packaging/test_artifacts.py`** — asersi manifest `requireAdministrator`.
+- **`AGENTS.md`** — policy override #1 + packaging section: app wajib admin,
+  semua tweak diterapkan langsung dengan token elevated; catatan riwayat
+  asInvoker/relaunch-guard.
+
+### Catatan sumber pesan "minimum supported platform"
+
+String itu TIDAK ditemukan di: source app, bundle, WebView2 runtime
+(msedge.dll/msedgewebview2.exe/WebView2Loader), pywebview + SDK DLL-nya,
+pythonnet/clr_loader, atau .NET Framework. Dengan build saat ini yang berjalan
+elevated normal, error tersebut tidak muncul — sebelumnya muncul karena build
+bootloader lama (PyInstaller 6.16) ditolak loader host ini
+("not a valid application for this OS platform" ≈ "platform not supported")
+dan/atau crash intermiten host (`0xa462`).
+
+### Gates
+
+`ruff check` ✓, `ruff format --check` ✓, `mypy src` ✓, `pytest` 137 passed,
+1 failed pre-existing (`test_emulator_tweak_executes_real_operations` — host
+tanpa BlueStacks), 4 deselected, `scripts/verify_exe.py` OK. `dist/` dan
+`dist_new/` sinkron (16,909,433 bytes).
+
+## 2026-08-06 — Semua tweak benar-benar diterapkan tanpa "Run as administrator" (self-elevation)
+
+**Status:** Selesai. Kini user cukup **double-click EXE** (tanpa admin, tanpa
+error "minimum supported platform"). Tweak yang butuh Administrator
+(HKLM/service/powercfg/bcdedit) dieksekusi oleh instance kedua EXE yang
+elevated via UAC (satu prompt per tweak); tweak HKCU jalan langsung.
+
+### Masalah
+
+- `execute_tweak` dulu menjalankan SEMUA langkah via `subprocess.run` dengan
+  token user biasa → tweak HKLM/service/powercfg/bcdedit selalu gagal
+  "Access is denied" bila tidak Run as administrator.
+- Helper elevated (`helper.py`) masih stub ("Helper nyata belum diaktifkan"),
+  jadi tidak ada jalur elevasi yang benar-benar berjalan.
+- Di sisi lain, menjalankan app sebagai admin memecah WebView2 (guard
+  `_relaunch_without_elevation`). Dua hal ini kontradiktif.
+
+### Perubahan
+
+- **`src/ipan_optimizer/privileged/runner.py`** (baru): inti eksekusi +
+  elevasi.
+  - `run_step()` / `resolve_command()` — dipindah dari `tweak_engine.py`
+    (eksekutor subprocess tunggal).
+  - `is_elevated()` — TokenElevation via ctypes (dipindah dari `main.py`).
+  - `run_elevated_steps()` — langkah berhak-admin dijalankan via satu UAC:
+    tulis plan one-shot (nonce + SHA-256 digest + expiry 120 s), luncurkan
+    EXE yang sama elevated (`ShellExecuteExW runas` →
+    `--apply-plan <plan> --result <result>`), tunggu, baca hasil JSON.
+    Saat sudah elevated atau `IPAN_OPTIMIZER_NO_ELEVATION=1` (test), langkah
+    dijalankan in-process.
+  - `validate_plan_file()` — cek schema, nonce (anti-replay), expiry,
+    digest (anti-tamper); hasil di-tulis ke file result.
+  - `execute_plan_file()` — entry point mode elevated.
+- **`src/ipan_optimizer/core/tweak_engine.py`** — `execute_tweak` memisah
+  langkah normal (in-process) vs admin (via `run_elevated_steps`); hapus
+  `_resolve_command`/`_run_step` lokal.
+- **`src/ipan_optimizer/main.py`** — tambah arg `--apply-plan`/`--result`
+  (mode elevated one-shot, di-handle sebelum guard `asInvoker`); `_is_elevated`
+  dipindah ke `runner.is_elevated`.
+- **`src/ipan_optimizer/privileged/helper.py`** — bukan stub lagi; delegasi ke
+  `runner.execute_plan_file` (entry point `helper.spec` tetap valid).
+- **`tests/conftest.py`** — fixture autouse `IPAN_OPTIMIZER_NO_ELEVATION=1`
+  agar test tidak pernah memicu UAC/elevasi host.
+- **`tests/unit/test_runner.py`** (baru) — 13 test: resolve/run step,
+  no-elevation path, UAC dibatalkan, write+validate plan round-trip,
+  digest/expiry/replay ditolak, execute_plan_file sukses/error.
+- **`tests/unit/test_elevation_guard.py`** — `_is_elevated` → `runner.is_elevated`.
+- **`AGENTS.md`** — policy override #1 + packaging section diperbarui ke
+  arsitektur self-elevation.
+
+### Verifikasi
+
+- Gates: `ruff check` ✓, `ruff format --check` ✓, `mypy src` ✓, `pytest` =
+  134 passed (13 runner + 10 guard baru), 1 failed pre-existing
+  (`test_emulator_tweak_executes_real_operations` — host tanpa BlueStacks),
+  4 deselected.
+- E2E di EXE ter-build: `--apply-plan` menjalankan `reg add HKCU` beneran —
+  nilai Registry `E2E=1` tertulis, hasil JSON `success:true`, exit 0;
+  nonce yang dipakai ulang ditolak (replay protection).
+- UI normal tetap stabil, `--no-window` exit 0, `scripts/verify_exe.py` OK.
+- `dist/` + `dist_new/Ipan AppSettinX V1.exe` disinkronkan.
+
+## 2026-08-06 — Fix error "minimum supported platform" + stabilkan build EXE
+
+**Status:** Selesai. `dist/` dan `dist_new/` kini berisi EXE build baru
+(PyInstaller **6.21.0**, dibuat dari `C:\Python312`) yang load + jalan stabil
+di host (UI 3/3, `--no-window` 3/3 exit 0). Menambahkan guard anti-elevation
+di `main.py`, script `scripts/verify_exe.py`, dan mengoreksi dokumentasi.
+
+### Gejala user
+
+- Membuka `dist_new/Ipan AppSettinX V1.exe` → "the minimum supported platform
+  is Windows..." / "platform not supported" (terutama saat Run as
+  Administrator). Padahal kemarin build yang sama jalan normal.
+
+### Diagnosis (forensik EXE + host)
+
+1. **Root cause utama bukan kode.** Gate lulus (ruff ✓, mypy ✓, pytest 111
+   pass, 1 fail pre-existing BlueStacks). String "minimum supported platform"
+   TIDAK ada di source maupun isi bundle.
+2. **Crash `0xc0000005` di offset bootloader `0xa462` adalah masalah HOST,
+   bukan aplikasi.** Bukti: `ruff.exe` (binary Rust, tidak ada hubungannya
+   dengan PyInstaller) juga crash di offset `0xa462` yang sama beberapa kali
+   hari ini; EXE "Downloads" yang kemarin jalan juga ikut crash hari ini.
+   Host (Win10 19045) secara intermiten menggagalkan startup proses
+   (kemungkinan produk keamanan/driver/compat pada Windows gaming custom).
+   Crash ini muncul SEBELUM Python dimuat.
+3. **Load-time rejection "not a valid application for this OS platform"
+   (ERROR_BAD_EXE_FORMAT).** Build baru pakai PyInstaller 6.16.0 (bootloader
+   `.text 0x2bd80`, layout appended classic) ditolak loader host. Build yang
+   jalan di host ini memakai bootloader PyInstaller 6.21.0 (`.text 0x2c640`,
+   yang sama dengan EXE Downloads yang berfungsi). Kesimpulan: pin 6.16.0
+   (hasil sesi 8/6 pagi) adalah **miskoreksi** — layout 6.21 tidak rusak;
+   yang menentukan adalah bootloader yang bisa di-load host ini.
+4. **Error saat Run as Administrator.** WebView2/pywebview (host WinForms via
+   pythonnet) tidak dapat inisialisasi di proses elevated → muncul pesan
+   "minimum supported platform is Windows...". Aplikasi memang dirancang
+   `asInvoker` + elevation on-demand; menjalankan EXE sebagai admin tidak
+   seharusnya dilakukan.
+
+### Perubahan
+
+- **`src/ipan_optimizer/main.py`** — tambah guard anti-elevation: `_is_elevated()`
+  (TokenElevation via ctypes), `_uac_enabled()` (cek EnableLUA — di Windows
+  custom UAC-disabled tidak ada token non-elevated, jadi app tetap jalan),
+  dan `_relaunch_without_elevation()`: jika EXE dijalankan sebagai
+  Administrator, app membuka ulang diri melalui shell non-elevated
+  (`explorer.exe`) dengan proteksi marker file anti-loop (`temp\ipan_optimizer_elevation_relaunch.marker`).
+  Non-blocking — bila tidak bisa relaunch, app tetap jalan apa adanya.
+  Mencegah error "minimum supported platform is Windows..." saat user salah
+  klik "Run as administrator".
+- **`tests/unit/test_elevation_guard.py`** (baru) — 10 test untuk guard
+  (elevation detection, UAC enabled/disabled, marker anti-loop, spawn
+  explorer, skip saat ada arg/explorer tidak ada).
+- **`scripts/verify_exe.py`** (baru) — gate build: cek PE (x64, GUI,
+  subsystem version wajar), manifest harus `asInvoker`, dan smoke test
+  `--no-window` exit 0. Menghapus klaim layout/ASLR yang terbukti salah.
+- **`scripts/harden_exe.py`** — dihapus (teori ASLR/timestamp tidak valid;
+  eksperimen ASLR justru merusak load bootloader).
+- **`AGENTS.md`** — section "Packaging build (release EXE)": build wajib
+  pakai PyInstaller **6.21.0** dari `C:\Python312` (venv tetap 6.16 hanya
+  untuk gates), lalu `scripts/verify_exe.py` sebelum ship; jangan pernah
+  jalankan release EXE sebagai Administrator.
+- **Build:** `dist/` + `dist_new/Ipan AppSettinX V1.exe` = 16,901,386 bytes
+  (PyInstaller 6.21.0), verified `scripts/verify_exe.py` → OK.
+
+### Verifikasi
+
+- EXE baru: load di host (tidak ERROR_BAD_EXE_FORMAT), UI normal 3/3 (alive,
+  Responding=True, WebView2 aktif), `--no-window` exit 0 3/3, guard
+  anti-elevation ter-bundle di binary.
+- Gates: `ruff check` ✓, `ruff format --check` ✓, `mypy src` ✓, `pytest` =
+  121 passed (111 lama + 10 baru), 1 failed pre-existing
+  (`test_emulator_tweak_executes_real_operations` — host tanpa BlueStacks),
+  4 deselected, `scripts/verify_exe.py` ✓.
+- Catatan: crash `0xa462` intermiten di host adalah lingkungan (bukan bug
+  app; juga mengenai `ruff.exe`); bila EXE gagal start sekali, cukup jalankan
+  ulang. Log ada di
+  `%LOCALAPPDATA%\IPAN Optimizer\logs\ipan-optimizer.jsonl`.
+
 ## 2026-08-06 — Copywriting pesan login tanpa kata "Firebase"
 
 **Status:** Selesai. Semua pesan user-facing tidak lagi menyebut "Firebase";

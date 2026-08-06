@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
+
+from ipan_optimizer.privileged.runner import execute_plan_file
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="IPAN Optimizer elevated helper")
-    parser.add_argument("--transaction-id", required=True)
-    parser.add_argument("--nonce", required=True)
-    parser.parse_args()
-    # Real IPC/execution is deliberately release-gated. Packaging a helper entry
-    # point does not grant it a generic command or filesystem interface.
-    print("Helper nyata belum diaktifkan; tidak ada perubahan yang dijalankan.")
-    return 2
+    parser.add_argument("--apply-plan", required=True)
+    parser.add_argument("--result", required=True)
+    args = parser.parse_args()
+    return execute_plan_file(Path(args.apply_plan), Path(args.result))
 
 
 if __name__ == "__main__":
