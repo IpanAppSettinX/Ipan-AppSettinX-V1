@@ -98,8 +98,8 @@ def _run(cmd: list[str]) -> TweakStep:
 ADVANCED_TWEAK_COMMANDS: dict[str, list[TweakStep]] = {
     "adv.clean_all": [
         _run(["del", "/q", "/f", "/s", "%TEMP%\\*"]),
-        _run(["del", "/q", "/f", "/s", r"C:\Windows\Temp\*"]),
-        _run(["del", "/q", "/f", "/s", r"C:\Windows\Prefetch\*"]),
+        _run(["del", "/q", "/f", "/s", r"%WINDIR%\Temp\*"]),
+        _run(["del", "/q", "/f", "/s", r"%WINDIR%\Prefetch\*"]),
     ],
     "adv.regedit_optimize": [
         _reg_add(
@@ -475,9 +475,9 @@ ADVANCED_TWEAK_COMMANDS: dict[str, list[TweakStep]] = {
     ],
     "adv.delete_onedrive": [
         _run(["taskkill", "/f", "/im", "OneDrive.exe"]),
-        _run([r"C:\Windows\System32\OneDriveSetup.exe", "/uninstall"]),
+        _run([r"%WINDIR%\System32\OneDriveSetup.exe", "/uninstall"]),
         _run(["rd", "/s", "/q", r"%USERPROFILE%\OneDrive"]),
-        _run(["rd", "/s", "/q", r"C:\OneDriveTemp"]),
+        _run(["rd", "/s", "/q", r"%PROGRAMDATA%\OneDriveTemp"]),
     ],
     "adv.speed_up_device": [
         _reg_add(
@@ -2598,7 +2598,11 @@ FIXES_TWEAK_COMMANDS: dict[str, list[TweakStep]] = {
 }
 
 
-def execute_tweak(tweak_id: str, title: str) -> TweakResult:
+def execute_tweak(
+    tweak_id: str,
+    title: str,
+    progress: Any = None,
+) -> TweakResult:
     steps_def = (
         ADVANCED_TWEAK_COMMANDS.get(tweak_id)
         or TWEAK_MENU_COMMANDS.get(tweak_id)
@@ -2614,11 +2618,27 @@ def execute_tweak(tweak_id: str, title: str) -> TweakResult:
     # User-scope steps (HKCU etc.) run directly in-process.
     normal_steps = [step for step in steps_def if not step.requires_admin]
     admin_steps = [step for step in steps_def if step.requires_admin]
+    total = len(normal_steps) + (1 if admin_steps else 0)
+    done = 0
+
+    def _report(msg: str) -> None:
+        if progress is not None:
+            try:
+                pct = int(done * 95 / total) if total else 0
+                progress(max(1, pct), msg)
+            except Exception:
+                pass
 
     result = TweakResult(tweak_id=tweak_id, title=title, success=True)
-    outcomes = [run_step(step) for step in normal_steps]
+    outcomes: list[dict[str, Any]] = []
+    for step in normal_steps:
+        _report(f"{title}: {step.description}")
+        outcomes.append(run_step(step))
+        done += 1
     if admin_steps:
+        _report(f"{title}: elevasi UAC untuk {len(admin_steps)} operasi admin")
         outcomes += run_elevated_steps(admin_steps, tweak_id)
+        done += 1
     for outcome in outcomes:
         result.steps.append(outcome)
         if outcome["success"]:
@@ -2643,6 +2663,11 @@ def execute_tweak(tweak_id: str, title: str) -> TweakResult:
         )
     else:
         result.message = f"{title}: {result.applied} operasi berhasil diterapkan."
+    if progress is not None:
+        try:
+            progress(100, result.message)
+        except Exception:
+            pass
     return result
 
 

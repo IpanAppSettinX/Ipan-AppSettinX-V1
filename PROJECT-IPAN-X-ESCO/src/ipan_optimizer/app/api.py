@@ -68,16 +68,22 @@ class ApiBridge:
             from ipan_optimizer.core.tweak_engine import execute_tweak, result_to_dict
 
             tweak = get_tweak(tweak_id)
-            result = execute_tweak(tweak_id, tweak.title)
-            self.service._log_activity(
-                "tweak",
-                result.message,
-                tweak_id=tweak_id,
-                title=tweak.title,
-                applied=result.applied,
-                failed=result.failed,
-            )
-            return result_to_dict(result)
+
+            def work(report: Any) -> dict[str, object]:
+                result = execute_tweak(tweak_id, tweak.title, progress=report)
+                self.service._log_activity(
+                    "tweak",
+                    result.message,
+                    tweak_id=tweak_id,
+                    title=tweak.title,
+                    applied=result.applied,
+                    failed=result.failed,
+                )
+                return result_to_dict(result)
+
+            return self.service.jobs.submit_progress(
+                f"Menyiapkan {tweak.title}…", work
+            ).model_dump(mode="json")
 
         return self._call(execute)
 
@@ -90,16 +96,22 @@ class ApiBridge:
             from ipan_optimizer.core.tweak_engine import execute_tweak, result_to_dict
 
             tweak = get_advanced_tweak(tweak_id)
-            result = execute_tweak(tweak_id, tweak.title)
-            self.service._log_activity(
-                "advanced_tweak",
-                result.message,
-                tweak_id=tweak_id,
-                title=tweak.title,
-                applied=result.applied,
-                failed=result.failed,
-            )
-            return result_to_dict(result)
+
+            def work(report: Any) -> dict[str, object]:
+                result = execute_tweak(tweak_id, tweak.title, progress=report)
+                self.service._log_activity(
+                    "advanced_tweak",
+                    result.message,
+                    tweak_id=tweak_id,
+                    title=tweak.title,
+                    applied=result.applied,
+                    failed=result.failed,
+                )
+                return result_to_dict(result)
+
+            return self.service.jobs.submit_progress(
+                f"Menyiapkan {tweak.title}…", work
+            ).model_dump(mode="json")
 
         return self._call(execute)
 
@@ -177,16 +189,22 @@ class ApiBridge:
                 "boost_fps_menu": "Emulator Overdrive X",
             }
             title = titles.get(tweak_id, tweak_id)
-            result = execute_tweak(tweak_id, title)
-            self.service._log_activity(
-                "gaming_tweak",
-                result.message,
-                tweak_id=tweak_id,
-                title=title,
-                applied=result.applied,
-                failed=result.failed,
-            )
-            return result_to_dict(result)
+
+            def work(report: Any) -> dict[str, object]:
+                result = execute_tweak(tweak_id, title, progress=report)
+                self.service._log_activity(
+                    "gaming_tweak",
+                    result.message,
+                    tweak_id=tweak_id,
+                    title=title,
+                    applied=result.applied,
+                    failed=result.failed,
+                )
+                return result_to_dict(result)
+
+            return self.service.jobs.submit_progress(
+                f"Menyiapkan {title}…", work
+            ).model_dump(mode="json")
 
         return self._call(execute)
 
@@ -199,16 +217,22 @@ class ApiBridge:
                 "emulator.msi_app_player": "MSI App Player Optimizer",
             }
             title = titles.get(tweak_id, tweak_id)
-            result = execute_tweak(tweak_id, title)
-            self.service._log_activity(
-                "emulator_tweak",
-                result.message,
-                tweak_id=tweak_id,
-                title=title,
-                applied=result.applied,
-                failed=result.failed,
-            )
-            return result_to_dict(result)
+
+            def work(report: Any) -> dict[str, object]:
+                result = execute_tweak(tweak_id, title, progress=report)
+                self.service._log_activity(
+                    "emulator_tweak",
+                    result.message,
+                    tweak_id=tweak_id,
+                    title=title,
+                    applied=result.applied,
+                    failed=result.failed,
+                )
+                return result_to_dict(result)
+
+            return self.service.jobs.submit_progress(
+                f"Menyiapkan {title}…", work
+            ).model_dump(mode="json")
 
         return self._call(execute)
 
@@ -221,16 +245,22 @@ class ApiBridge:
                 "fixes.obs_screenshot": "Fix OBS STUDIO Dan fitur screen shoot",
             }
             title = titles.get(tweak_id, tweak_id)
-            result = execute_tweak(tweak_id, title)
-            self.service._log_activity(
-                "fix_tweak",
-                result.message,
-                tweak_id=tweak_id,
-                title=title,
-                applied=result.applied,
-                failed=result.failed,
-            )
-            return result_to_dict(result)
+
+            def work(report: Any) -> dict[str, object]:
+                result = execute_tweak(tweak_id, title, progress=report)
+                self.service._log_activity(
+                    "fix_tweak",
+                    result.message,
+                    tweak_id=tweak_id,
+                    title=title,
+                    applied=result.applied,
+                    failed=result.failed,
+                )
+                return result_to_dict(result)
+
+            return self.service.jobs.submit_progress(
+                f"Menyiapkan {title}…", work
+            ).model_dump(mode="json")
 
         return self._call(execute)
 

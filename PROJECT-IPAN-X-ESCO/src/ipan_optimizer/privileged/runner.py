@@ -41,6 +41,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from pathlib import Path
 from typing import Any
 
 NO_ELEVATION_ENV = "IPAN_OPTIMIZER_NO_ELEVATION"
@@ -86,6 +87,29 @@ _CMD_INTERNAL_COMMANDS = frozenset(
 )
 
 
+def _service_exists(service: str) -> bool:
+    """Return True when the Windows service is installed (sc query succeeds)."""
+    if sys.platform != "win32":
+        return False
+    try:
+        result = subprocess.run(
+            ["sc", "query", service],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            shell=False,
+        )
+        return result.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _file_exists_resolved(path: str) -> bool:
+    """Check if a (possibly env-var) path exists after expansion."""
+    expanded = os.path.expandvars(path)
+    return Path(expanded).is_file()
+
+
 def resolve_command(command: list[str]) -> list[str]:
     """Expand env vars and wrap CMD internal commands for ``shell=False``.
 
@@ -123,11 +147,56 @@ def run_step(step: Any) -> dict[str, Any]:
         }
     try:
         resolved = resolve_command(step.command)
+        if not resolved:
+            return {
+                "description": step.description,
+                "success": False,
+                "error": "Command kosong.",
+                "requires_admin": step.requires_admin,
+            }
+
+        # Pre-check: skip `sc config`/`sc stop` for non-existent services.
+        # Custom Windows (AtlasOS, ReviOS, Ghost Spectre, X-Lite) often removes
+        # services like DiagTrack, SysMain, WinDefend. Running `sc config` on a
+        # missing service returns error 1060 and counts as failure.
+        if len(resolved) >= 3 and resolved[0].lower() == "sc" and resolved[1].lower() in {"config", "stop"}:
+            svc_name = resolved[2]
+            if not _service_exists(svc_name):
+                return {
+                    "description": step.description,
+                    "success": True,
+                    "stdout": f"Service {svc_name} tidak ditemukan, dilewati.",
+                    "requires_admin": step.requires_admin,
+                    "skipped": True,
+                }
+
+        # Pre-check: skip executable tweaks when the target binary is absent.
+        # E.g. OneDriveSetup.exe, wmic (deprecated on Win11 22H2+).
+        first = resolved[0].lower()
+        if first == "wmic" and not _file_exists_resolved(r"%WINDIR%\System32\wbem\wmic.exe"):
+            return {
+                "description": step.description,
+                "success": True,
+                "stdout": "wmic tidak tersedia (deprecated), dilewati.",
+                "requires_admin": step.requires_admin,
+                "skipped": True,
+            }
+        # Detect direct .exe invocation with a full path that doesn't exist.
+        if first.endswith(".exe") and (":\\" in first or first.startswith("%")):
+            if not _file_exists_resolved(first):
+                return {
+                    "description": step.description,
+                    "success": True,
+                    "stdout": f"{first} tidak ditemukan, dilewati.",
+                    "requires_admin": step.requires_admin,
+                    "skipped": True,
+                }
+
         result = subprocess.run(  # noqa: S603 - trusted local commands; env vars expanded, CMD internals wrapped.
             resolved,
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=15,
             shell=False,
         )
         ok = result.returncode == 0
@@ -137,6 +206,14 @@ def run_step(step: Any) -> dict[str, Any]:
             "stdout": result.stdout.strip()[:500] if result.stdout else "",
             "stderr": result.stderr.strip()[:500] if result.stderr else "",
             "requires_admin": step.requires_admin,
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "description": step.description,
+            "success": True,
+            "stdout": "Command melebihi batas waktu, dilewati.",
+            "requires_admin": step.requires_admin,
+            "skipped": True,
         }
     except (OSError, subprocess.SubprocessError) as exc:
         return {

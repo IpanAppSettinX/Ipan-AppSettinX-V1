@@ -250,6 +250,17 @@ function finishApplyProcess(result, title, message) {
   byControl("process.close").focus();
 }
 
+async function pollJobProgress(jobId) {
+  let current = await invoke("get_job_status", jobId);
+  while (!["SUCCEEDED", "FAILED", "CANCELLED"].includes(current.state)) {
+    setProcessProgress(current.progress || 1, current.message || "Memproses…");
+    await new Promise((resolve) => window.setTimeout(resolve, 120));
+    current = await invoke("get_job_status", jobId);
+  }
+  setProcessProgress(current.progress || 100, current.message || "Selesai.");
+  return current;
+}
+
 async function runSafetyCheck(control, title, operation) {
   await busy(control, async () => {
     state.returnToTransaction = false;
@@ -258,6 +269,25 @@ async function runSafetyCheck(control, title, operation) {
     try {
       await nextPaint();
       const result = await operation();
+      if (result && result.job_id && result.state) {
+        const job = await pollJobProgress(result.job_id);
+        if (job.state !== "SUCCEEDED") {
+          throw new Error(job.error || "Operasi gagal saat eksekusi tweak.");
+        }
+        const final = job.result || {};
+        await animateProcessProgress(
+          92,
+          RESULT_PRESENTATION_MS,
+          "Pemeriksaan selesai. Menyusun ringkasan hasil safety.",
+        );
+        await animateProcessProgress(100, 350, "Safety inspection selesai.");
+        finishApplyProcess(
+          "success",
+          "Tweak berhasil diterapkan",
+          final.message || "Tweak berhasil diterapkan.",
+        );
+        return final;
+      }
       await animateProcessProgress(
         92,
         RESULT_PRESENTATION_MS,
@@ -772,6 +802,9 @@ async function handleTweakAction(control) {
   }
   await runSafetyCheck(control, `Menerapkan ${item.title}`, async () => {
     const result = await invoke("apply_tweak", item.tweak_id);
+    if (result && result.job_id) {
+      return result;
+    }
     return { message: result.message || `${item.title} diterapkan.` };
   });
 }
