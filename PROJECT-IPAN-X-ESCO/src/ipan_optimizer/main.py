@@ -76,6 +76,72 @@ def create_runtime(data_dir: Path | None = None) -> Runtime:
     )
 
 
+def cleanup_orphan_meipass(max_age_hours: float = 24.0, limit: int = 12) -> int:
+    """Hapus folder ``_MEIxxxxx`` yatim (orphan) peninggalan force-close.
+
+    PyInstaller one-file mengekstrak bundle ke ``%TEMP%\\_MEI<pid>`` dan
+    membersihkannya saat proses keluar normal. Bila pengguna men-force-close
+    aplikasi (Task Manager / ``taskkill /f`` setelah hang), bootloader mati
+    sebelum sempat menghapus folder itu — muncul log
+    "failed to remove temporary directory ...\\_MEI9242". Sisa folder juga
+    bisa memuat file ``index.html`` frontend versi lama yang kedaluwarsa;
+    inilah sumber ``ERR_FILE_NOT_FOUND`` saat aplikasi dijalankan ulang.
+
+    Fungsi ini hanya menyentuh folder milik aplikasi ini: berawalan
+    ``_MEI``, berada di direktori temp OS yang aktif (dinamis — tidak ada
+    hardcode drive letter), usianya lebih tua dari ``max_age_hours`` (aman:
+    instance yang sedang berjalan tidak akan tersentuh), dan tidak sedang
+    dipakai proses lain (rename-gagal = terkunci = dilewati). Mengembalikan
+    jumlah folder yang berhasil dihapus.
+    """
+    if sys.platform != "win32":
+        return 0
+    import contextlib
+    import shutil
+    import tempfile
+    import time
+
+    try:
+        temp_root = Path(tempfile.gettempdir())
+    except Exception:  # pragma: no cover - defensif
+        return 0
+    own = Path(getattr(sys, "_MEIPASS", "")).resolve() if getattr(sys, "_MEIPASS", None) else None
+    cutoff = time.time() - max_age_hours * 3600
+    removed = 0
+    try:
+        candidates = sorted(
+            (p for p in temp_root.glob("_MEI*") if p.is_dir()),
+            key=lambda p: p.stat().st_mtime,
+        )
+    except OSError:  # pragma: no cover - defensif
+        return 0
+    for candidate in candidates:
+        if removed >= limit:
+            break
+        try:
+            if candidate.stat().st_mtime > cutoff:
+                continue  # terlalu baru: bisa jadi milik instance yang sedang hidup
+            if own is not None and candidate.resolve() == own:
+                continue  # jangan pernah hapus folder tempat kita berjalan
+        except OSError:
+            continue
+        # Rename-dulu sebagai uji kunci: bila gagal, folder masih dipakai
+        # proses lain -> lewati dengan aman.
+        probe = candidate.with_name(candidate.name + ".cleanup")
+        try:
+            candidate.rename(probe)
+        except OSError:
+            continue
+        with contextlib.suppress(OSError):
+            shutil.rmtree(probe, ignore_errors=True)
+        if probe.exists():  # rmtree gagal sebagian -> kembalikan nama aslinya
+            with contextlib.suppress(OSError):
+                probe.rename(candidate)
+        else:
+            removed += 1
+    return removed
+
+
 def frontend_path() -> Path:
     # Di dalam bundle PyInstaller, __file__ tidak menunjuk ke file nyata di
     # disk (kode Python dikemas dalam arsip PYZ). Asset frontend disalin ke
@@ -197,6 +263,10 @@ def main() -> int:
         # results JSON, then exits. Never starts the WebView2 UI here.
         return execute_plan_file(Path(args.apply_plan), Path(args.result))
     del args.dry_run
+    # Bersihkan folder _MEI yatim peninggalan force-close SEBELUM membuka UI.
+    # Ini mencegah ERR_FILE_NOT_FOUND (frontend usang di _MEI lama) dan
+    # pesan "failed to remove temporary directory" pada log.
+    cleanup_orphan_meipass()
     runtime = create_runtime()
     if not args.no_window:
         if not ensure_runtime_requirements(headless=False):

@@ -212,6 +212,8 @@ def run_step(step: Any) -> dict[str, Any]:
             "reg": r"%WINDIR%\System32\reg.exe",
             "sc": r"%WINDIR%\System32\sc.exe",
             "net": r"%WINDIR%\System32\net.exe",
+            "explorer": r"%WINDIR%\explorer.exe",
+            "powershell": r"%WINDIR%\System32\WindowsPowerShell\v1.0\powershell.exe",
         }
         if first in _SYSTEM_BINARIES and not _file_exists_resolved(_SYSTEM_BINARIES[first]):
             return {
