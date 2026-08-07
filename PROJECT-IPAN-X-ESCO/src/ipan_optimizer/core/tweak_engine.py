@@ -11,10 +11,16 @@ powercfg changes are best-effort and may require admin elevation.
 
 from __future__ import annotations
 
+import sys
+import threading
 from dataclasses import dataclass, field
 from typing import Any
 
-from ipan_optimizer.privileged.runner import run_elevated_steps, run_step
+from ipan_optimizer.privileged.runner import (
+    is_modded_windows,
+    run_elevated_steps,
+    run_step,
+)
 
 _PREFETCH = (
     r"SYSTEM\CurrentControlSet\Control\Session Manager"
@@ -2598,6 +2604,78 @@ FIXES_TWEAK_COMMANDS: dict[str, list[TweakStep]] = {
 }
 
 
+def _step_timeout_outcome(step: Any, seconds: int) -> dict[str, Any]:
+    return {
+        "description": step.description,
+        "success": True,
+        "stdout": f"Operasi melebihi {seconds} dtk pada Windows ini, dilewati.",
+        "requires_admin": step.requires_admin,
+        "skipped": True,
+    }
+
+
+def _run_step_guarded(step: Any, timeout: int = 20) -> dict[str, Any]:
+    """Run one step with a hard watchdog so a stuck component on a modded OS
+    can never freeze the job thread. The step runs in a daemon thread; if it
+    does not finish within ``timeout`` seconds we record a skipped outcome and
+    move on (the daemon thread is abandoned and dies with the process)."""
+    if sys.platform != "win32":
+        return run_step(step)
+    box: list[dict[str, Any]] = []
+
+    def _target() -> None:
+        try:
+            box.append(run_step(step))
+        except Exception as exc:  # pragma: no cover - defensive
+            box.append(
+                {
+                    "description": step.description,
+                    "success": False,
+                    "error": str(exc),
+                    "requires_admin": step.requires_admin,
+                }
+            )
+
+    worker = threading.Thread(target=_target, daemon=True)
+    worker.start()
+    worker.join(timeout)
+    if worker.is_alive():
+        return _step_timeout_outcome(step, timeout)
+    return box[0] if box else _step_timeout_outcome(step, timeout)
+
+
+def _run_elevated_guarded(
+    steps: list[Any], tweak_id: str, timeout: int = 150
+) -> list[dict[str, Any]]:
+    """Run the elevated batch with a hard watchdog (see _run_step_guarded)."""
+    if sys.platform != "win32":
+        return run_elevated_steps(steps, tweak_id)
+    box: list[list[dict[str, Any]]] = []
+
+    def _target() -> None:
+        try:
+            box.append(run_elevated_steps(steps, tweak_id))
+        except Exception as exc:  # pragma: no cover - defensive
+            box.append(
+                [
+                    {
+                        "description": s.description,
+                        "success": False,
+                        "error": str(exc),
+                        "requires_admin": True,
+                    }
+                    for s in steps
+                ]
+            )
+
+    worker = threading.Thread(target=_target, daemon=True)
+    worker.start()
+    worker.join(timeout)
+    if worker.is_alive():
+        return [_step_timeout_outcome(s, timeout) for s in steps]
+    return box[0] if box else [_step_timeout_outcome(s, timeout) for s in steps]
+
+
 def execute_tweak(
     tweak_id: str,
     title: str,
@@ -2630,14 +2708,17 @@ def execute_tweak(
                 pass
 
     result = TweakResult(tweak_id=tweak_id, title=title, success=True)
+    # On a stripped/modded Windows many components are already gone; the
+    # engine labels the run so the summary message can explain the skips.
+    modded = is_modded_windows()
     outcomes: list[dict[str, Any]] = []
     for step in normal_steps:
         _report(f"{title}: {step.description}")
-        outcomes.append(run_step(step))
+        outcomes.append(_run_step_guarded(step))
         done += 1
     if admin_steps:
         _report(f"{title}: elevasi UAC untuk {len(admin_steps)} operasi admin")
-        outcomes += run_elevated_steps(admin_steps, tweak_id)
+        outcomes += _run_elevated_guarded(admin_steps, tweak_id)
         done += 1
     for outcome in outcomes:
         result.steps.append(outcome)
@@ -2656,13 +2737,19 @@ def execute_tweak(
         )
         result.success = False
     elif result.failed > 0:
+        suffix = (
+            " Terdeteksi Windows modded/stripped; komponen yang hilang otomatis dilewati."
+            if modded
+            else ""
+        )
         result.message = (
             f"{title}: {result.applied} operasi berhasil, {result.failed} gagal "
             "(kemungkinan elevasi UAC dibatalkan, atau service/target sudah "
-            "dihapus pada Windows custom)."
+            f"dihapus pada Windows custom).{suffix}"
         )
     else:
-        result.message = f"{title}: {result.applied} operasi berhasil diterapkan."
+        suffix = " (Windows modded: komponen yang hilang dilewati dengan aman.)" if modded else ""
+        result.message = f"{title}: {result.applied} operasi berhasil diterapkan.{suffix}"
     if progress is not None:
         try:
             progress(100, result.message)

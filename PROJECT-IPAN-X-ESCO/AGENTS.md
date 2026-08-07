@@ -89,23 +89,27 @@ python scripts/check_asset_budget.py
 
 ## Packaging build (release EXE)
 
-- **Build with PyInstaller 6.21.0 from the global interpreter
-  `C:\Python312`** (the pinned venv keeps `pyinstaller==6.16.0` for gates
-  only — PyInstaller is not part of the test gates). Earlier builds pinned
-  6.16.0 because of a misdiagnosis: the intermittent `0xc0000005` at
-  bootloader offset `0xa462` was blamed on PyInstaller 6.21, but it is a
-  host-environment problem (it also crashes `ruff.exe`, an unrelated Rust
-  binary, at the same offset). On this host the 6.16 bootloader's appended
-  onefile layout is rejected at load time ("not a valid application for this
-  OS platform") while the 6.21 bootloader loads and runs correctly.
-- Build: `C:\Python312\python.exe -m PyInstaller --clean --noconfirm installer/ipan_optimizer.spec`
-- Output: `dist/Ipan AppSettinX V1.exe` (single file). Copy to
-  `dist_new/` so both locations ship the same artifact.
+- **Build interpreter: pakai `.venv\Scripts\python.exe` (PyInstaller 6.21.0).**
+  Interpreter global `C:\Python312` saat ini **rusak** (`import PyInstaller`
+  gagal walau foldernya ada di site-packages — diduga sisa karantina Defender /
+  file korup); jangan dipakai sampai diperbaiki. `build_exe.bat` (root proyek)
+  sudah auto-detect interpreter yang berfungsi (venv dulu, lalu global).
+- **Defender exclusion wajib aktif** untuk `C:\Python312` dan
+  `D:\Ipan-AppSettinX-V1` — jika tidak, Defender mengkarantina bootloader
+  `runw.exe` saat build dan EXE yang dihasilkan rusak ("not a valid Win32
+  application" / "No module named unicodedata").
+- **C-extension stdlib wajib ter-bundle** lewat `hiddenimports` di
+  `installer/ipan_optimizer.spec` (`unicodedata`, `_decimal`, `_ssl`, dll.) agar
+  tidak terjadi `ModuleNotFoundError` pada OS modded dengan komponen terbatas.
+- Build cepat: jalankan `build_exe.bat` (clean build/ dist + cache PyInstaller,
+  rebuild, verifikasi, lalu buka Explorer ke `dist`). Setara manual:
+  `.venv\Scripts\python.exe -m PyInstaller --clean --noconfirm installer/ipan_optimizer.spec`
+- Output: `dist/Ipan AppSettinX V1.exe` (single file). Copy ke `dist_new/` bila
+  ingin kedua lokasi mengirim artefak yang sama.
 - **Verify before shipping:**
-  `python scripts/verify_exe.py "dist/Ipan AppSettinX V1.exe"` — checks the
-  PE (x64, GUI subsystem, sane subsystem version), that the manifest is
-  `requireAdministrator`, and that `--no-window` starts and exits 0 (launched
-  elevated). Do not ship an EXE that fails this.
+  `python scripts/verify_exe.py "dist/Ipan AppSettinX V1.exe"` — cek PE (x64,
+  GUI subsystem), manifest `requireAdministrator`, dan `--no-window` start/exit
+  0. Jangan kirim EXE yang gagal cek ini.
 - **The release EXE requires Administrator.** Double-clicking shows a UAC
   prompt and the app runs elevated; every tweak (Tweak Menu, Advanced Menu,
   AppSensiX) is then applied directly with the elevated token — HKLM registry,

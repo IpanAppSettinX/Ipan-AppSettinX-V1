@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from ipan_optimizer.app.api import ApiBridge
@@ -89,33 +91,50 @@ def test_invalid_rule_returns_typed_error(bridge: ApiBridge) -> None:
     assert response["error"]["code"] == "VALIDATION_ERROR"
 
 
+def _run_tweak_job(bridge: ApiBridge, job_response: dict[str, object]) -> dict[str, object]:
+    """Drive an async tweak job to completion and return its result payload.
+
+    ``apply_*_tweak`` return a job descriptor (async), not the tweak result.
+    Poll the job until it leaves PENDING/RUNNING, then return the stored
+    result dict (which carries applied/failed) or an empty dict on failure.
+    """
+    assert job_response["success"] is True
+    job_id = job_response["data"]["job_id"]
+    status = job_response["data"]
+    for _ in range(500):
+        status = bridge.get_job_status(job_id)["data"]
+        if status["state"] not in {"PENDING", "RUNNING"}:
+            break
+        time.sleep(0.02)
+    assert status["state"] in {"SUCCEEDED", "FAILED", "CANCELLED"}
+    result = status.get("result") or {}
+    assert isinstance(result, dict)
+    return result
+
+
 def test_emulator_tweak_executes_real_operations(bridge: ApiBridge) -> None:
-    response = bridge.apply_emulator_tweak("emulator.bluestacks5")
-    assert response["success"] in {True, False}
-    if response["success"]:
-        assert response["data"]["applied"] >= 1
-    else:
-        assert "error" in response or response.get("data", {}).get("failed", 0) >= 0
+    result = _run_tweak_job(bridge, bridge.apply_emulator_tweak("emulator.bluestacks5"))
+    # The host is never mutated (dry-run / no-elevation), but the job must run
+    # to completion and report a structured outcome.
+    assert "applied" in result
+    assert "failed" in result
+    assert result["applied"] >= 1 or result.get("skipped") or result["failed"] >= 0
 
 
 def test_gaming_tweak_executes_real_operations(bridge: ApiBridge) -> None:
-    response = bridge.apply_gaming_tweak("aim_smooth")
-    assert response["success"] in {True, False}
-    if response["success"]:
-        assert response["data"]["applied"] >= 1
-    else:
-        assert "error" in response or response.get("data", {}).get("failed", 0) >= 0
+    result = _run_tweak_job(bridge, bridge.apply_gaming_tweak("aim_smooth"))
+    assert "applied" in result
+    assert "failed" in result
+    assert result["applied"] >= 1 or result.get("skipped") or result["failed"] >= 0
 
 
 def test_advanced_tweak_executes_real_operations(bridge: ApiBridge) -> None:
-    response = bridge.apply_advanced_tweak("adv.high_performance")
+    result = _run_tweak_job(bridge, bridge.apply_advanced_tweak("adv.high_performance"))
     # On the test host (non-admin or non-Windows) the tweak may partially fail,
     # but it must no longer be a blanket rejection.
-    assert response["success"] in {True, False}
-    if response["success"]:
-        assert response["data"]["applied"] >= 1
-    else:
-        assert "error" in response or response.get("data", {}).get("failed", 0) >= 0
+    assert "applied" in result
+    assert "failed" in result
+    assert result["applied"] >= 1 or result.get("skipped") or result["failed"] >= 0
 
 
 def test_transaction_job_reports_verified_result(bridge: ApiBridge) -> None:

@@ -74,6 +74,24 @@ analysis = Analysis(
         "win32timezone",
         "win32pdh",
         "win32pdhutil",
+        # C-extension stdlib modules that PyInstaller's modulegraph can miss
+        # when a stale/corrupted build cache is reused. ``unicodedata`` is the
+        # one that crashed the release EXE on the modded test OS with
+        # "ModuleNotFoundError: No module named 'unicodedata'". Listing them
+        # here forces them to be bundled from C:\\Python312\\DLLs.
+        "unicodedata",
+        "_decimal",
+        "_bz2",
+        "_lzma",
+        "_sqlite3",
+        "_ssl",
+        "_socket",
+        "_queue",
+        "_ctypes",
+        "_elementtree",
+        "pyexpat",
+        "select",
+        "zlib",
     ],
     hookspath=[],
     hooksconfig={},

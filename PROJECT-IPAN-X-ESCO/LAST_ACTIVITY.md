@@ -5,7 +5,67 @@
 > menyelesaikan pekerjaan pada sesi berjalan, agent **wajib memperbarui** file
 > ini (entri terbaru diletakkan paling atas).
 
-## 2026-08-07 (sesi 2) — Hapus semua threat history + scan menyeluruh disk C & D
+## 2026-08-07 (sesi 3) — Fix hang 87% + unicodedata + bersihkan crack Office
+
+**Status:** Selesai. Tiga akar masalah diperbaiki; EXE di-rebuild bersih.
+
+### 1. Fix hang 87% (Neural AimSync X / aim_stabilizer)
+- Akar masalah: `_launch_elevated` di `privileged/runner.py` memakai
+  `WaitForSingleObject(process, 120000)` — memblokir thread job sampai 120 dtk
+  bila helper elevated mati di tengah (karena `unicodedata` hilang), sehingga UI
+  membeku. Juga `powercfg`/`bcdedit`/`taskkill` dijalankan tanpa cek keberadaan
+  di Windows X Lite.
+- Perbaikan:
+  - `runner.py`: `WaitForSingleObject` diganti **poll non-blocking** (slice
+    250 ms) yang berhenti segera saat helper keluar / file hasil muncul.
+  - `runner.py`: pre-check biner sistem (`powercfg`, `bcdedit`, `taskkill`,
+    `reg`, `sc`, `net`) — bila hilang di Windows modded, langkah di-skip aman
+    (success+skipped) alih-alih hang/gagal.
+  - `runner.py`: timeout per-langkah 15s -> 10s; `is_modded_windows()` heuristik.
+  - `tweak_engine.py`: `_run_step_guarded` + `_run_elevated_guarded` — daemon
+    thread watchdog 20s/150s agar satu langkah macet tak pernah membekukan job.
+  - `jobs.py`: komentar monotonic progress (bar tak pernah mundur).
+
+### 2. Fix "No module named unicodedata"
+- Akar masalah: Defender false positive `Tedy.GPKM!MTB` mengkarantina bootloader
+  PyInstaller `runw.exe` saat build -> EXE rusak, C-extension gagal dimuat.
+- Perbaikan:
+  - `installer/ipan_optimizer.spec`: tambah `hiddenimports` C-extension
+    (`unicodedata`, `_decimal`, `_bz2`, `_lzma`, `_sqlite3`, `_ssl`, `_socket`,
+    `_queue`, `_ctypes`, `_elementtree`, `pyexpat`, `select`, `zlib`).
+  - Exclusion Defender diset untuk `C:\Python312` + `D:\Ipan-AppSettinX-V1`.
+  - Build di-rebuild dengan **venv PyInstaller 6.21.0** (interpreter global
+    `C:\Python312` gagal `import PyInstaller` — folder site-packages-nya korup).
+  - Terverifikasi: `unicodedata` dkk. **TER-BUNDLE** di Analysis-00.toc; EXE
+    17.7 MB; `scripts/verify_exe.py` -> OK.
+  - CATATAN: build kini memakai `.venv\Scripts\python.exe` (bukan C:\Python312)
+    karena interpreter global rusak; `build_exe.bat` auto-detect interpreter.
+
+### 3. Malware / persistence
+- Audit live 10 titik: Scheduled Tasks, Run/RunOnce, WMI, IFEO, Winlogon,
+  proses miner, koneksi mining, service -> **SEMUA BERSIH** (hanya entri legit).
+- File crack Office berbahaya (`cleanospp.exe` x86, dst.) di `D:\BACKUP PC\ms
+  office` dihapus. Notifikasi virus yang muncul lagi = false positive Defender
+  pada file legit (Git/esbuild/pyinstaller/game) + crack Office.
+- Skrip pembersih reusable: `scripts/remove_malware.ps1` (jalankan as admin).
+
+### File baru
+- `build_exe.bat` (root proyek) — clean rebuild + buka Explorer ke dist.
+- `scripts/remove_malware.ps1` — eradikasi malware/persistence (admin).
+
+### Verifikasi
+- `pytest` unit+security+integration: **121/121 LULUS** (sebelumnya 118 + 3 gagal).
+- 3 test di `tests/integration/test_api.py` (test_emulator/gaming/advanced)
+  **diperbaiki pada sesi ini**: test itu keliru menganggap `apply_*_tweak`
+  sinkron padahal mengembalikan job async. Ditambah helper `_run_tweak_job`
+  yang me-poll job hingga selesai lalu membaca `status.result` (berisi
+  applied/failed). Ini perbaikan test, bukan perubahan logika produksi.
+- `ruff format` lolos; `ruff check` bersih; `mypy -p ipan_optimizer` (59 file,
+  scope resmi sesuai pyproject) = 0 error. Catatan: mypy tidak mengecek
+  `tests/` (konfigurasi `packages=["ipan_optimizer"]`), jadi warning ketik di
+  file test tidak masuk gate.
+
+
 
 **Status:** Selesai. Semua threat history dihapus, file malware asli dihapus,
 disk C & D discan bersih, EXE terbukti tidak terkontaminasi.

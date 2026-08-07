@@ -38,6 +38,8 @@ class JobManager:
         def report(progress: int, update_message: str) -> None:
             with self._lock:
                 current = self._jobs[job_id]
+                # Monotonic progress: never move the bar backwards so the UI
+                # can never appear stuck even if a step reports a lower value.
                 current.progress = max(current.progress, min(progress, 99))
                 current.message = update_message
 

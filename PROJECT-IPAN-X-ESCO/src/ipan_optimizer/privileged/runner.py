@@ -41,7 +41,6 @@ import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from pathlib import Path
 from typing import Any
 
 NO_ELEVATION_ENV = "IPAN_OPTIMIZER_NO_ELEVATION"
@@ -110,6 +109,29 @@ def _file_exists_resolved(path: str) -> bool:
     return Path(expanded).is_file()
 
 
+def is_modded_windows() -> bool:
+    """Heuristic: True when core Windows binaries/services are missing.
+
+    Stripped custom builds (X Lite, ReviOS, KernelOS, Ghost Spectre, AtlasOS)
+    remove components like DiagTrack, the DPS service, or even powercfg. When
+    several of these are absent we treat the OS as "modded" so the tweak
+    engine can prefer non-destructive, missing-safe operations.
+    """
+    if sys.platform != "win32":
+        return False
+    probes = 0
+    missing = 0
+    for rel in (r"%WINDIR%\System32\powercfg.exe", r"%WINDIR%\System32\bcdedit.exe"):
+        probes += 1
+        if not _file_exists_resolved(rel):
+            missing += 1
+    for svc in ("DiagTrack", "DPS", "SysMain", "WSearch"):
+        probes += 1
+        if not _service_exists(svc):
+            missing += 1
+    return probes > 0 and missing >= 2
+
+
 def resolve_command(command: list[str]) -> list[str]:
     """Expand env vars and wrap CMD internal commands for ``shell=False``.
 
@@ -159,7 +181,11 @@ def run_step(step: Any) -> dict[str, Any]:
         # Custom Windows (AtlasOS, ReviOS, Ghost Spectre, X-Lite) often removes
         # services like DiagTrack, SysMain, WinDefend. Running `sc config` on a
         # missing service returns error 1060 and counts as failure.
-        if len(resolved) >= 3 and resolved[0].lower() == "sc" and resolved[1].lower() in {"config", "stop"}:
+        if (
+            len(resolved) >= 3
+            and resolved[0].lower() == "sc"
+            and resolved[1].lower() in {"config", "stop"}
+        ):
             svc_name = resolved[2]
             if not _service_exists(svc_name):
                 return {
@@ -173,6 +199,29 @@ def run_step(step: Any) -> dict[str, Any]:
         # Pre-check: skip executable tweaks when the target binary is absent.
         # E.g. OneDriveSetup.exe, wmic (deprecated on Win11 22H2+).
         first = resolved[0].lower()
+
+        # Pre-check: core system binaries that stripped/modded Windows builds
+        # (X Lite, ReviOS, KernelOS, Ghost Spectre, AtlasOS) may have removed or
+        # locked. If the binary is gone the command would either fail with
+        # "not recognized" or block; skip it cleanly as a no-op so the progress
+        # bar always advances instead of hanging.
+        _SYSTEM_BINARIES = {
+            "powercfg": r"%WINDIR%\System32\powercfg.exe",
+            "bcdedit": r"%WINDIR%\System32\bcdedit.exe",
+            "taskkill": r"%WINDIR%\System32\taskkill.exe",
+            "reg": r"%WINDIR%\System32\reg.exe",
+            "sc": r"%WINDIR%\System32\sc.exe",
+            "net": r"%WINDIR%\System32\net.exe",
+        }
+        if first in _SYSTEM_BINARIES and not _file_exists_resolved(_SYSTEM_BINARIES[first]):
+            return {
+                "description": step.description,
+                "success": True,
+                "stdout": f"{first} tidak tersedia pada Windows ini (modded/stripped), dilewati.",
+                "requires_admin": step.requires_admin,
+                "skipped": True,
+            }
+
         if first == "wmic" and not _file_exists_resolved(r"%WINDIR%\System32\wbem\wmic.exe"):
             return {
                 "description": step.description,
@@ -192,11 +241,14 @@ def run_step(step: Any) -> dict[str, Any]:
                     "skipped": True,
                 }
 
+        # Per-step timeout: keep it short so a hung component on a modded OS
+        # (locked service manager, stuck power service) can never freeze the
+        # job thread / progress bar. 10 s per step is generous for reg/sc/cfg.
         result = subprocess.run(  # noqa: S603 - trusted local commands; env vars expanded, CMD internals wrapped.
             resolved,
             capture_output=True,
             text=True,
-            timeout=15,
+            timeout=10,
             shell=False,
         )
         ok = result.returncode == 0
@@ -391,7 +443,11 @@ def run_elevated_steps(steps: list[Any], tweak_id: str) -> list[dict[str, Any]]:
     try:
         if not _launch_elevated(plan_path, result_path):
             return [
-                _failed_outcome(step, "Elevasi dibatalkan atau tidak tersedia (UAC).")
+                _failed_outcome(
+                    step,
+                    "Helper elevated tidak merespons (UAC dibatalkan, komponen "
+                    "hilang pada Windows modded, atau helper berhenti).",
+                )
                 for step in steps
             ]
         if not result_path.is_file():
@@ -459,17 +515,31 @@ def _launch_elevated(plan_path: Path, result_path: Path) -> bool:
     if not ctypes.windll.shell32.ShellExecuteExW(ctypes.byref(info)):
         return False
 
-    process = info.hProcess
-    if process:
-        ctypes.windll.kernel32.WaitForSingleObject(process, 120000)
-        ctypes.windll.kernel32.CloseHandle(process)
-    else:  # pragma: no cover - fallback poll for the result file
-        deadline = datetime.now() + timedelta(seconds=_PLAN_LIFETIME_SECONDS)
-        while not result_path.is_file() and datetime.now() < deadline:
-            import time
+    # Poll the elevated helper instead of a single long blocking wait. On a
+    # modded OS the helper can die instantly (missing DLL / module) leaving a
+    # valid-but-dead process handle; a 120 s WaitForSingleObject would freeze
+    # the job thread (the "stuck at 87%" symptom). We poll the result file and
+    # bail out as soon as the helper exits OR the result appears.
+    import time
 
+    process = info.hProcess
+    deadline = time.monotonic() + _PLAN_LIFETIME_SECONDS
+    wait_ok = False
+    while time.monotonic() < deadline:
+        if result_path.is_file():
+            wait_ok = True
+            break
+        if process:
+            # WaitForSingleObject with a short slice; WAIT_OBJECT_0 (0) = exited.
+            state = ctypes.windll.kernel32.WaitForSingleObject(process, 250)
+            if state == 0:  # helper finished (or crashed) -> stop waiting
+                wait_ok = result_path.is_file()
+                break
+        else:
             time.sleep(0.1)
-    return True
+    if process:
+        ctypes.windll.kernel32.CloseHandle(process)
+    return wait_ok
 
 
 # ── Elevated instance entry point ───────────────────────────────
