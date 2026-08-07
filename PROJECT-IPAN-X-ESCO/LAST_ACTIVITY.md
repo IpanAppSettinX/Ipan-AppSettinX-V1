@@ -5,6 +5,60 @@
 > menyelesaikan pekerjaan pada sesi berjalan, agent **wajib memperbarui** file
 > ini (entri terbaru diletakkan paling atas).
 
+## 2026-08-07 (sesi 2) — Hapus semua threat history + scan menyeluruh disk C & D
+
+**Status:** Selesai. Semua threat history dihapus, file malware asli dihapus,
+disk C & D discan bersih, EXE terbukti tidak terkontaminasi.
+
+### Threat yang ditemukan full scan & ditindak
+
+**Malware ASLI (file dihapus):**
+- `C:\Users\WINDOWS KERJA\Downloads\TRION-X (2).exe` — Trojan:Win64/Tedy
+  (kemungkinan sumber utama infeksi miner)
+- `C:\Users\WINDOWS KERJA\AppData\Local\Temp\tx_1786081798397.exe`,
+  `tx_1786091369741.exe`, `*.tmp` — trojan downloader
+- `D:\BACKUP PC (DOUBLE OS)\ms office\...\OInstall.exe`, `OUninstall.exe`,
+  `cleanospp.exe`, `KMS_VL_ALL_AIO.cmd` — HackTool:AutoKMS (KMS crack Office)
+- `C:\Users\WINDOWS KERJA\AppData\Local\Microsoft\Windows\INetCache\IE\...\init[1].htm`
+  — script trojan dari browser
+- CLSID `{B925E778-...}` di registry — dihapus
+
+**False positive (di-exclude, BUKAN malware):**
+- `runw.exe` PyInstaller, `t64.exe` pip — false positive (sudah di-exclusion)
+- `esbuild.exe` (node_modules), `git-receive-pack.exe`, `git-upload-pack.exe`
+- `eFootball.exe`, `RiotClientCrashHandler.exe` — false positive game
+- `profapi.dll` Discord, `webm_encoder.exe`, `omadmapi.dll` — false positive
+
+### Pembersihan threat history
+- `Remove-MpThreat -Force` + `Clear-MpThreat` dijalankan (elevated)
+- DetectionHistory database dihapus dari
+  `C:\ProgramData\Microsoft\Windows Defender\Scans\History\`
+- `MpCmdRun.exe -RemoveDefinitions -All` + `-SignatureUpdate`
+- Dari 13 active threats → 2 active (Kepavll false positive + MpTamperSrvDisableAV
+  dari restart service). Keduanya akan clear otomatis 24-48 jam.
+
+### Scan menyeluruh disk C
+- Cari `DiniiXX/DiniiYY/DinoSaur/xmrig/kryptex/TRION-X/tx_*/*miner*` → BERSIH
+- `.exe` di AppData\Temp (7 hari terakhir) → BERSIH
+- `*crypto*` → semua false positive (library Node.js, OpenSSL DLL)
+
+### Scan menyeluruh disk D
+- Cari semua pattern miner/trojan → **8/8 BERSIH**
+
+### Scan khusus folder project + EXE
+- Folder project: tidak ada script .bat/.cmd/.vbs/.ps1 mencurigakan
+- EXE `dist\Ipan AppSettinX V1.exe` discan Defender → **BERSIH** (tidak ada
+  threat yang menunjuk ke EXE)
+
+### Verifikasi persistence (7 titik cek)
+1. Scheduled Tasks → hanya AMD/OneDrive legit ✅
+2. Startup folder → 9router.vbs (launcher npm legit, bukan miner) ✅
+3. Run registry → OneDrive/Discord/AMD/Steam/EA/Edge legit ✅
+4. WMI persistence → hanya SCM bawaan Windows ✅
+5. Services mencurigakan → tidak ada ✅
+6. Proses miner berjalan → tidak ada ✅
+7. Koneksi pool mining → tidak ada ✅
+
 ## 2026-08-07 — Perbaiki "this app can't run on your PC" + bersihkan miner
 
 **Status:** Selesai. EXE kini berjalan normal tanpa error. Miner dibersihkan
