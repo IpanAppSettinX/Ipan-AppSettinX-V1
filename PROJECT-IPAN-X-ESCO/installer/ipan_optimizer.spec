@@ -1,5 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
 import platform as _platform
+import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(SPECPATH).parent
@@ -22,6 +25,38 @@ datas = [
 binaries = []
 if bootstrapper.is_file():
     binaries.append((str(bootstrapper), "ipan_optimizer/data"))
+
+# Bundle the Universal C Runtime (UCRT) so the app runs on machines without
+# the Visual C++ Redistributable installed. python312.dll depends on
+# ucrtbase.dll and api-ms-win-crt-*.dll; without them the bootloader fails
+# with "failed to load python dll".
+_crt_source = Path(os.environ.get("WINDIR", r"C:\Windows")) / "System32"
+_crt_downlevel = _crt_source / "downlevel"
+for _dll_name in ["ucrtbase.dll"]:
+    _dll_path = _crt_source / _dll_name
+    if _dll_path.is_file():
+        binaries.append((str(_dll_path), "."))
+if _crt_downlevel.is_dir():
+    for _dll_path in _crt_downlevel.glob("api-ms-win-crt-*.dll"):
+        binaries.append((str(_dll_path), "."))
+
+# Generate and bundle api-ms-win-core-path-l1-1-0.dll forwarder.
+# Python 3.12 links against this API set which only exists as a virtual
+# contract on Windows 10/11. On stripped Windows editions (Ghost Spectre,
+# AtlasOS, ReviOS, X Lite, Kernel OS) the API set resolution is broken,
+# causing python312.dll to fail to load. This forwarder DLL redirects the
+# calls to shlwapi.dll and kernel32.dll where the real implementations live.
+_path_wrapper_script = ROOT / "scripts" / "gen_path_wrapper.py"
+_path_wrapper_dll = ROOT / "build" / "api-ms-win-core-path-l1-1-0.dll"
+if _path_wrapper_script.is_file():
+    _path_wrapper_dll.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [sys.executable, str(_path_wrapper_script), str(_path_wrapper_dll)],
+        check=True,
+        capture_output=True,
+    )
+    if _path_wrapper_dll.is_file():
+        binaries.append((str(_path_wrapper_dll), "."))
 
 analysis = Analysis(
     [str(PACKAGE / "main.py")],
