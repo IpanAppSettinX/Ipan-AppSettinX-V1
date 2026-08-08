@@ -5,6 +5,64 @@
 > menyelesaikan pekerjaan pada sesi berjalan, agent **wajib memperbarui** file
 > ini (entri terbaru diletakkan paling atas).
 
+## 2026-08-08 (sesi 16) — Debloat Windows: beralih ke perintah All-Users (Get-AppxPackage -AllUsers | Remove-AppxPackage -AllUsers)
+
+**Status: Selesai.** Setelah riset mendalam (docs Microsoft + probe elevated),
+akar masalah akhir terbukti: di mesin user, paket bloat ter-provision untuk
+SEMUA user, sehingga penghapusan per-user (native `RemovePackageAsync` →
+HRESULT 0x80073CFA; fallback `Remove-AppxPackage` per-user → returncode 1)
+selalu gagal. Satu-satunya yang berhasil adalah script manual
+`Get-AppxPackage -AllUsers | Remove-AppxPackage -AllUsers` dari PowerShell
+Administrator. `run_appx_debloat` kini memakai perintah All-Users itu sebagai
+primary (aplikasi berjalan requireAdministrator → powershell anak mewarisi
+token elevated), diverifikasi dengan `-WhatIf` yang menampilkan KEDUA PULUH DUA
+paket siap dihapus tanpa menghapus apa pun. EXE di-rebuild, verify OK, push.
+
+### Riset (bukti)
+- Docs Microsoft `Remove-AppxPackage`: parameter `-AllUsers` = "removes the app
+  package for all user accounts ... To use this parameter, you must run the
+  command with administrator permissions."
+- Probe elevated `Get-AppxPackage -AllUsers` (read-only): returncode 0,
+  mengembalikan 22 paket target dengan `PackageFullName` + `PackageUserInformation`
+  (terdaftar untuk user interaktif).
+- Probe elevated `-WhatIf` dari perintah removal PERSIS: 22 baris
+  `What if: Performing the operation "Remove package" on target "<FullName>"`
+  → seluruh perintah valid & menarget semua paket list debloat.
+
+### Perubahan
+- `src/ipan_optimizer/privileged/runner.py`:
+  - `_run_powershell_capture(script)` (baru): jalankan powershell hidden
+    (`-NoProfile -NonInteractive -ExecutionPolicy Bypass`, timeout 45s).
+  - Builder script baru: `_debloat_target_names_script` (enumerasi -AllUsers +
+    regex list bloat), `_debloat_remove_script` (Get-AppxPackage -AllUsers |
+    Where-Object { $names -contains $_.Name } | Remove-AppxPackage -AllUsers),
+    `_debloat_verify_script`, `_debloat_remove_single_script` (retry per paket
+    tanpa SilentlyContinue agar error nyata terlihat), `_package_full_name`.
+  - `run_appx_debloat()` ditulis ulang: enumerate(-AllUsers, fallback native) →
+    remove(-AllUsers) → verify(re-scan) → retry per paket → fallback native
+    per-user terakhir → laporan jumlah yang BENAR-BENAR terhapus.
+  - Hapus `_appx_powershell_script`/`_remove_appx_packages_powershell` (per-user)
+    yang terbukti gagal di mesin user.
+- `src/ipan_optimizer/core/tweak_engine.py`: deskripsi step
+  "Hapus aplikasi bawaan Windows (All Users)"; komentar menjelaskan kenapa
+  `requires_admin=False` + perintah All-Users.
+- `tests/unit/test_runner.py`: `_FakeAppxShell` (simulasi in-memory enumerasi/
+  removal/verify tanpa proses nyata); test builder script All-Users, removal
+  penuh, partial, total-failure, no-candidates, all-protected, fallback
+  enumerasi native, enumerasi gagal.
+
+### Gates (hijau)
+- ruff: hanya 6 pre-existing baseline. mypy: 0 error. pytest: **152 passed,
+  4 deselected**. Control matrix 58, frontend policy, asset budget valid.
+- Build `.venv` PyInstaller 6.21.0 → `dist/Ipan AppSettinX V1.exe`
+  **18,122,375 bytes**; `verify_exe.py` OK (smoke elevated dilewati karena
+  UAC tidak tersedia di sesi non-interaktif); `dist_new` SHA-256 identik.
+- SHA-256 (dist == dist_new):
+  `2BC0A991A129EF2C4EB03A5D6A28C69DE1000435C61E0D1954A5028265509FDD`.
+- Commit + push ke GitHub; Explorer dibuka ke folder `dist`.
+
+---
+
 ## 2026-08-08 (sesi 15) — Debloat Windows: fallback PowerShell diperbaiki (sintaks -Name @() rusak), akuntansi re-scan nyata
 
 **Status: Selesai.** User masih melihat "semua operasi gagal", kali ini dengan

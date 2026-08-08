@@ -166,26 +166,27 @@ def is_modded_windows() -> bool:
     return probes > 0 and missing >= 2
 
 
-# ── Native AppX debloat (in-process; powershell fallback only) ───
+# ── AppX debloat (all-users PowerShell primary; native COM fallback) ──
 #
-# Windows Runtime / Desktop Bridge AppX removal used to be delegated to
-# ``powershell -Command Get-AppxPackage ... | Remove-AppxPackage``. That is
-# fragile on real user machines: a stripped/modded Windows (X-Lite, KernelOS,
-# AtlasOS, ReviOS, Ghost Spectre) may ship a half-removed powershell.exe that
-# hangs on profile load or exits non-zero, and a plain per-user (non-elevated)
-# ``Remove-AppxPackage -AllUsers`` is denied unless the process owns a
-# trusted-package capability. This module instead loads
-# ``Windows.Management.Deployment.PackageManager`` through pythonnet and talks
-# to the AppX deployment service (AppXSVC) directly over COM — the very same
-# service the Store and powershell cmdlets call — so:
+# Debloat Windows removes UWP bloatware for ALL users. Deep investigation on a
+# real modded machine showed that on that build the packages are provisioned
+# for all users: the native per-user ``PackageManager.RemovePackageAsync``
+# returned HRESULT 0x80073CFA (not found) and a per-user ``Remove-AppxPackage``
+# exited non-zero, while ``Get-AppxPackage -AllUsers | Remove-AppxPackage
+# -AllUsers`` run from an Administrator PowerShell removed every package —
+# exactly the manual script the user confirmed works.
 #
-#   * the primary path spawns NO console process (no window, no hang),
-#   * per-user removal needs NO elevation, so the tweak runs in-process and
-#     never touches the UAC/elevated-helper relaunch path,
-#   * a missing/broken powershell.exe cannot block the tweak (it is only a
-#     fallback when the native deployment call itself rejects a package),
-#   * every target package gets its own isolated removal attempt so one
-#     protected app cannot fail the whole tweak.
+# The release EXE runs with ``requireAdministrator`` and the tweak step runs
+# in-process (``requires_admin=False``), so the powershell child inherits the
+# elevated token and the same all-users command works identically. The flow:
+#
+#   * enumerate targets for all users (proven manual-script enumeration),
+#   * remove them for all users (proven manual-script command),
+#   * verify with a re-scan so the reported number is ground truth,
+#   * retry any remaining package individually (capturing its real error),
+#   * native COM per-user removal as a last resort for stripped OSes where
+#     powershell itself is broken,
+#   * report success as long as at least one package was actually removed.
 #
 # Protected system packages are skipped explicitly so the operation can never
 # wedge the OS, mirroring the allow-list the tweak already used.
@@ -364,43 +365,19 @@ def _remove_appx_package(package_manager: Any, package_full_name: str) -> tuple[
     return _wait_appx_operation(operation)
 
 
-def _appx_powershell_script(names: list[str]) -> str:
-    """Build the per-user Remove-AppxPackage script for the given names.
+def _run_powershell_capture(script: str, timeout: int = 45) -> tuple[bool, str, str]:
+    """Run a PowerShell script hidden; return (ok, stdout, stderr).
 
-    ``Get-AppxPackage -Name`` only accepts a plain ``string`` (a single-element
-    array is rejected with a binding error), so the targets are matched through
-    ``Where-Object { $names -contains $_.Name }`` instead — valid for 1..N.
+    Mirrors how the user's manual script is executed: ``powershell.exe`` with
+    ``-NoProfile -NonInteractive -ExecutionPolicy Bypass``, a hidden console and
+    a hard timeout so a broken powershell on stripped Windows can never hang the
+    apply job.
     """
-    quoted = ",".join("'" + n.replace("'", "''") + "'" for n in names)
-    return (
-        "$ErrorActionPreference='Continue'; "
-        f"$names = @({quoted}); "
-        "Get-AppxPackage | Where-Object { $names -contains $_.Name } | "
-        "Remove-AppxPackage -ErrorAction SilentlyContinue"
-    )
-
-
-def _remove_appx_packages_powershell(names: list[str]) -> tuple[bool, str]:
-    """Fallback: per-user ``Remove-AppxPackage`` (no ``-AllUsers``).
-
-    Mirrors the manual PowerShell script that users confirm removes bloatware
-    without errors: enumerate the exact package names and remove them for the
-    current user. This is only reached when the native deployment call above
-    could not remove something, so the "no powershell.exe" guarantee holds for
-    the normal path. The command runs with a hidden console, no profile, and a
-    short timeout so a broken powershell on stripped Windows can never hang the
-    apply job (watchdog still bounds it).
-    """
-    if not names:
-        return True, ""
-    script = _appx_powershell_script(names)
-    # Resolve powershell through %WINDIR% (avoids S607 partial-path); fall back
-    # to PATH only when the canonical location is missing (e.g. stripped OS).
     powershell_path = os.path.expandvars(r"%WINDIR%\System32\WindowsPowerShell\v1.0\powershell.exe")
     if not Path(powershell_path).is_file():
         powershell_path = "powershell"
     try:
-        result = subprocess.run(  # noqa: S603 - trusted system package names
+        result = subprocess.run(  # noqa: S603 - trusted fixed args + generated script
             [
                 powershell_path,
                 "-NoProfile",
@@ -412,30 +389,115 @@ def _remove_appx_packages_powershell(names: list[str]) -> tuple[bool, str]:
             ],
             capture_output=True,
             text=True,
-            timeout=20,
+            timeout=timeout,
             shell=False,
             **_hidden_console_kwargs(),
         )
     except subprocess.TimeoutExpired:
-        return False, "powershell fallback melebihi batas waktu."
+        return False, "", "melebihi batas waktu."
     except (OSError, subprocess.SubprocessError) as exc:
-        return False, f"powershell fallback gagal: {exc}"
-    if result.returncode != 0:
-        return False, (
-            result.stderr.strip()[:300] or f"powershell fallback returncode {result.returncode}"
-        )
-    return True, result.stdout.strip()[:200]
+        return False, "", f"gagal: {exc}"
+    return result.returncode == 0, result.stdout.strip(), result.stderr.strip()[:2000]
+
+
+def _debloat_target_names_script() -> str:
+    """Enumerate every package registered for ALL users whose Name matches the
+    tweak's bloat list (the manual-script enumeration)."""
+    pattern = "|".join(_APPSX_DEBLOAT_PATTERNS)
+    return (
+        "$ErrorActionPreference='Continue'; "
+        f"Get-AppxPackage -AllUsers | Where-Object {{ $_.Name -match '{pattern}' }} | "
+        "ForEach-Object { $_.Name }"
+    )
+
+
+def _debloat_remove_script(names: list[str]) -> str:
+    """Remove the given packages for ALL users (the manual-script command).
+
+    ``Get-AppxPackage -AllUsers`` requires admin; ``Remove-AppxPackage
+    -AllUsers`` is the documented all-user removal. Both are used exactly as in
+    the manual script the user confirmed works on their machine. ``-Name`` can
+    not take an array, so the targets are filtered through ``Where-Object``.
+    """
+    quoted = ",".join("'" + n.replace("'", "''") + "'" for n in names)
+    return (
+        "$ErrorActionPreference='Continue'; "
+        f"$names = @({quoted}); "
+        "Get-AppxPackage -AllUsers | Where-Object { $names -contains $_.Name } | "
+        "Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue"
+    )
+
+
+def _debloat_verify_script(names: list[str]) -> str:
+    """Return the package names from ``names`` that are STILL registered for
+    any user (used after removal to check nothing was left behind)."""
+    quoted = ",".join("'" + n.replace("'", "''") + "'" for n in names)
+    return (
+        "$ErrorActionPreference='Continue'; "
+        f"$names = @({quoted}); "
+        "Get-AppxPackage -AllUsers | Where-Object { $names -contains $_.Name } | "
+        "ForEach-Object { $_.Name }"
+    )
+
+
+def _debloat_remove_single_script(name: str) -> str:
+    """Remove ONE package for all users WITHOUT -ErrorAction SilentlyContinue so
+    a real failure surfaces in stderr for the retry pass."""
+    escaped = name.replace("'", "''")
+    return (
+        "$ErrorActionPreference='Continue'; "
+        f"Get-AppxPackage -AllUsers | Where-Object {{ $_.Name -eq '{escaped}' }} | "
+        "Remove-AppxPackage -AllUsers"
+    )
+
+
+def _debloat_remaining_names(names: list[str]) -> set[str]:
+    """Ground truth: which of ``names`` are still registered for any user."""
+    ok, stdout, _ = _run_powershell_capture(_debloat_verify_script(names))
+    if ok:
+        return {line.strip() for line in stdout.splitlines() if line.strip()}
+    # Fallback: current-user native scan (conservative when powershell fails).
+    try:
+        package_manager = _load_appx_package_manager()
+        user_sid = _current_user_sid()
+        return {str(pkg.Id.Name) for pkg in package_manager.FindPackagesForUser(user_sid)}
+    except Exception:
+        return set(names)
+
+
+def _debloat_enumerate_targets() -> tuple[list[str], str]:
+    """Return (target names, "") or ([], error). Tries the all-users PowerShell
+    enumeration first (the proven manual-script path), then the native COM
+    current-user scan as a fallback for stripped OSes without powershell."""
+    ok, stdout, stderr = _run_powershell_capture(_debloat_target_names_script())
+    if ok:
+        names = [line.strip() for line in stdout.splitlines() if line.strip()]
+        if names or not stderr:
+            return names, ""
+    try:
+        package_manager = _load_appx_package_manager()
+        user_sid = _current_user_sid()
+        names = [
+            str(pkg.Id.Name)
+            for pkg in package_manager.FindPackagesForUser(user_sid)
+            if _name_matches_pattern(str(pkg.Id.Name))
+        ]
+        return names, ""
+    except Exception as exc:
+        return [], f"Enumerasi AppX gagal: {exc} (stderr: {stderr})"
 
 
 def run_appx_debloat(step: Any) -> dict[str, Any]:
-    """Execute the Debloat Windows tweak for the CURRENT user, in-process.
+    """Execute the Debloat Windows tweak in-process, removing every target for
+    ALL users — exactly the ``Get-AppxPackage -AllUsers | Remove-AppxPackage
+    -AllUsers`` manual script the user confirmed works when the app runs
+    elevated (the release EXE requires Administrator, and the spawned
+    powershell inherits that token).
 
-    Primary path is native: pythonnet -> ``PackageManager.RemovePackageAsync``
-    (COM to AppXSVC), no console process and no elevation required. If a package
-    cannot be removed natively, a per-user ``Remove-AppxPackage`` fallback
-    (matching the manual script users confirm works) is attempted. Every target
-    package is isolated so one protected/stubborn app never fails the tweak;
-    the step only reports failure when *nothing* could be removed.
+    Flow: enumerate -> remove all-users -> verify -> per-package retry for any
+    that remain -> final native fallback -> report. Nothing is reported as
+    removed unless a re-scan confirms it, and a single stubborn package can
+    never fail the whole tweak.
     """
     if sys.platform != "win32":
         return {
@@ -444,42 +506,16 @@ def run_appx_debloat(step: Any) -> dict[str, Any]:
             "error": "Tweak hanya berjalan di Windows.",
             "requires_admin": step.requires_admin,
         }
-    try:
-        package_manager = _load_appx_package_manager()
-    except RuntimeError as exc:
+
+    names, error = _debloat_enumerate_targets()
+    if error:
         return {
             "description": step.description,
             "success": False,
-            "error": str(exc),
+            "error": error,
             "requires_admin": step.requires_admin,
         }
-
-    try:
-        user_sid = _current_user_sid()
-    except Exception as exc:
-        return {
-            "description": step.description,
-            "success": False,
-            "error": f"Tidak dapat membaca SID user: {exc}",
-            "requires_admin": step.requires_admin,
-        }
-
-    # Enumerate candidate packages for the current user.
-    try:
-        candidates = [
-            package
-            for package in package_manager.FindPackagesForUser(user_sid)
-            if _name_matches_pattern(str(package.Id.Name))
-        ]
-    except Exception as exc:
-        return {
-            "description": step.description,
-            "success": False,
-            "error": f"Enumerasi AppX gagal: {exc}",
-            "requires_admin": step.requires_admin,
-        }
-
-    if not candidates:
+    if not names:
         return {
             "description": step.description,
             "success": True,
@@ -487,53 +523,8 @@ def run_appx_debloat(step: Any) -> dict[str, Any]:
             "requires_admin": step.requires_admin,
             "skipped": True,
         }
-
-    removed = 0
-    attempted = 0
-    targets: list[str] = []
-    native_failures: list[tuple[str, str]] = []
-    for package in candidates:
-        name = str(package.Id.Name)
-        if _is_protected_package(name):
-            continue
-        attempted += 1
-        targets.append(name)
-        ok, detail = _remove_appx_package(package_manager, str(package.Id.FullName))
-        if ok:
-            removed += 1
-        else:
-            native_failures.append((name, detail))
-
-    # Fallback: per-user Remove-AppxPackage (no -AllUsers), mirroring the manual
-    # script that works on the user's machine. Covers builds/editions where the
-    # native deployment call is rejected while the standard cmdlet succeeds.
-    fallback_error = ""
-    failed_names = [name for name, _ in native_failures]
-    if failed_names:
-        ok, detail = _remove_appx_packages_powershell(failed_names)
-        if not ok:
-            fallback_error = detail
-
-    # Ground truth: re-scan what actually remains registered for this user, so
-    # the reported number reflects reality no matter which path removed what.
-    try:
-        remaining = {str(pkg.Id.Name) for pkg in package_manager.FindPackagesForUser(user_sid)}
-    except Exception:
-        remaining = set()
-    still_installed = [name for name in targets if name in remaining]
-    actually_removed = len(targets) - len(still_installed)
-
-    if actually_removed > 0:
-        note = f"{actually_removed} aplikasi bawaan dihapus."
-        if still_installed:
-            note += f" Gagal sebagian: {', '.join(still_installed[:5])}."
-        return {
-            "description": step.description,
-            "success": True,
-            "stdout": note,
-            "requires_admin": step.requires_admin,
-        }
-    if attempted == 0:
+    targets = [name for name in names if not _is_protected_package(name)]
+    if not targets:
         return {
             "description": step.description,
             "success": True,
@@ -541,18 +532,65 @@ def run_appx_debloat(step: Any) -> dict[str, Any]:
             "requires_admin": step.requires_admin,
             "skipped": True,
         }
-    detail_parts = [f"{name}: {detail}" for name, detail in native_failures[:3]]
-    if fallback_error:
-        detail_parts.append(f"fallback: {fallback_error}")
+
+    # Primary removal: the proven all-users command.
+    _run_powershell_capture(_debloat_remove_script(targets))
+
+    # Verify what actually remains.
+    still = [n for n in targets if n in _debloat_remaining_names(targets)]
+
+    # Retry any stubborn package individually, capturing its real error.
+    retry_errors: dict[str, str] = {}
+    if still:
+        for name in still:
+            ok, _stdout, stderr = _run_powershell_capture(_debloat_remove_single_script(name))
+            if not ok:
+                retry_errors[name] = stderr or "returncode != 0"
+        still = [n for n in targets if n in _debloat_remaining_names(targets)]
+
+    # Final native per-user fallback for whatever is still registered (helps on
+    # systems where powershell itself is broken but AppXSVC responds to COM).
+    if still:
+        with contextlib.suppress(Exception):
+            package_manager = _load_appx_package_manager()
+            for name in list(still):
+                _remove_appx_package(package_manager, _package_full_name(name))
+            still = [n for n in targets if n in _debloat_remaining_names(targets)]
+
+    removed = len(targets) - len(still)
+    if removed > 0:
+        note = f"{removed} aplikasi bawaan dihapus."
+        if still:
+            note += f" Gagal sebagian: {', '.join(still[:5])}."
+        return {
+            "description": step.description,
+            "success": True,
+            "stdout": note,
+            "requires_admin": step.requires_admin,
+        }
+
+    detail_parts = [f"{name}: {err}" for name, err in retry_errors.items()][:3]
+    if not detail_parts:
+        detail_parts.append("semua penghapusan tidak menghasilkan perubahan.")
     return {
         "description": step.description,
         "success": False,
-        "error": (
-            "Tidak ada aplikasi yang dapat dihapus. "
-            + ("; ".join(detail_parts) if detail_parts else "tanpa rincian.")
-        ),
+        "error": "Tidak ada aplikasi yang dapat dihapus. " + "; ".join(detail_parts),
         "requires_admin": step.requires_admin,
     }
+
+
+def _package_full_name(name: str) -> str:
+    """Resolve the PackageFullName for a package Name via all-users scan."""
+    escaped = name.replace("'", "''")
+    ok, stdout, _ = _run_powershell_capture(
+        "$ErrorActionPreference='Continue'; "
+        f"Get-AppxPackage -AllUsers | Where-Object {{ $_.Name -eq '{escaped}' }} | "
+        "ForEach-Object { $_.PackageFullName }"
+    )
+    if ok and stdout.strip():
+        return stdout.strip().splitlines()[0]
+    return ""
 
 
 def resolve_command(command: list[str]) -> list[str]:
@@ -630,10 +668,10 @@ def run_step(step: Any) -> dict[str, Any]:
         }
     try:
         # Special case FIRST: the Debloat Windows tweak runs in-process through
-        # pythonnet -> Windows.Management.Deployment.PackageManager (COM to
-        # AppXSVC), with a per-user Remove-AppxPackage fallback only when the
-        # native call is rejected. This must never go through the UAC/helper
-        # relaunch path or a bare per-user -AllUsers command.
+        # the proven all-users PowerShell command (Get-AppxPackage -AllUsers |
+        # Remove-AppxPackage -AllUsers, requires the app's elevated token), with
+        # a native COM fallback. It must never go through the UAC/helper relaunch
+        # path or a bare per-user command.
         if step.command and step.command[0] == APPSX_DEBLOAT_STEP_ID:
             return run_appx_debloat(step)
         # Special case: a shell relaunch must never go through CMD or be

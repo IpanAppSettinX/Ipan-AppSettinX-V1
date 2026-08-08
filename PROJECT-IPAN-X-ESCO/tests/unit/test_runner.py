@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 import types
 from datetime import UTC, datetime, timedelta
@@ -356,6 +357,51 @@ class _FakePackageManager:
         return _FakeOperation(status=1)
 
 
+class _FakeAppxShell:
+    """In-memory stand-in for ``_run_powershell_capture``: simulates the
+    all-users PowerShell enumeration / removal / verification scripts without
+    ever spawning a real process during tests."""
+
+    def __init__(
+        self,
+        installed: list[str],
+        stubborn: set[str] | None = None,
+        fail_enumeration: bool = False,
+    ) -> None:
+        self.installed = list(installed)
+        self.stubborn = set(stubborn or [])
+        self.fail_enumeration = fail_enumeration
+        self.calls: list[str] = []
+
+    def capture(self, script: str, timeout: int = 45) -> tuple[bool, str, str]:
+        self.calls.append(script)
+        if self.fail_enumeration and "-match" in script and "Remove-AppxPackage" not in script:
+            return (False, "", "deployment service tidak tersedia")
+        if "Remove-AppxPackage" in script:
+            if "$names" in script:
+                names = _parse_names(script)
+                self.installed = [n for n in self.installed if n not in names or n in self.stubborn]
+            else:
+                match = re.search(r"\.Name -eq '([^']+)'", script)
+                if match:
+                    name = match.group(1).replace("''", "'")
+                    self.installed = [n for n in self.installed if n != name or n in self.stubborn]
+            return (True, "", "")
+        if "$names" in script:
+            names = _parse_names(script)
+            present = [n for n in self.installed if n in names]
+        else:
+            present = [n for n in self.installed if runner._name_matches_pattern(n)]
+        return (True, "\n".join(present), "")
+
+
+def _parse_names(script: str) -> list[str]:
+    match = re.search(r"\$names = @\('(.*)'\)", script)
+    if not match:
+        return []
+    return match.group(1).replace("''", "'").split("','")
+
+
 def _debloat_step() -> ExecStep:
     return ExecStep(
         description="Debloat Windows",
@@ -400,98 +446,52 @@ def test_run_step_dispatches_native_debloat(monkeypatch):
     assert called and called[0].command == [runner.APPSX_DEBLOAT_STEP_ID]
 
 
-def test_appx_powershell_script_uses_where_object_filter():
-    """Get-AppxPackage -Name rejects arrays; the fallback must filter via
-    Where-Object so it works for a single name too."""
-    script = runner._appx_powershell_script(["Microsoft.BingWeather"])
-    assert "Get-AppxPackage | Where-Object" in script
-    assert "$names -contains $_.Name" in script
-    assert "-Name @(" not in script
-    assert "Remove-AppxPackage -ErrorAction SilentlyContinue" in script
-    multi = runner._appx_powershell_script(["Microsoft.BingWeather", "Microsoft.ZuneMusic"])
-    assert "Microsoft.ZuneMusic" in multi
+def test_debloat_scripts_use_all_users():
+    """The generated PowerShell commands must use -AllUsers (the documented
+    all-user removal the user's manual script relies on) and must filter via
+    Where-Object (Get-AppxPackage -Name rejects arrays)."""
+    remove = runner._debloat_remove_script(["Microsoft.BingWeather"])
+    assert "Get-AppxPackage -AllUsers" in remove
+    assert "Remove-AppxPackage -AllUsers" in remove
+    assert "$names -contains $_.Name" in remove
+    assert "-Name @(" not in remove
+    target = runner._debloat_target_names_script()
+    assert "Get-AppxPackage -AllUsers" in target
+    assert "-match" in target
+    verify = runner._debloat_verify_script(["Microsoft.BingWeather", "Microsoft.ZuneMusic"])
+    assert "Get-AppxPackage -AllUsers" in verify
+    assert "Microsoft.ZuneMusic" in verify
+    single = runner._debloat_remove_single_script("Microsoft.BingWeather")
+    assert "Remove-AppxPackage -AllUsers" in single
+    assert ".Name -eq 'Microsoft.BingWeather'" in single
 
 
-def test_run_appx_debloat_removes_matching_packages(monkeypatch):
+def test_run_appx_debloat_removes_all_matching(monkeypatch):
     monkeypatch.setattr("sys.platform", "win32")
-    monkeypatch.setattr(runner, "_current_user_sid", lambda: "S-1-5-21-1-2-3-1001")
-    pm = _FakePackageManager(
+    shell = _FakeAppxShell(
         [
-            _FakePackage("Microsoft.BingWeather", "Microsoft.BingWeather_4.53_x64__8wekyb3d8bbwe"),
-            _FakePackage("Microsoft.ZuneMusic", "Microsoft.ZuneMusic_11.0_x64__8wekyb3d8bbwe"),
-            # ShellExperienceHost matches a pattern but must be protected.
-            _FakePackage(
-                "Microsoft.Windows.ShellExperienceHost",
-                "Microsoft.Windows.ShellExperienceHost_10.0_x64__cw5n1h2txyewy",
-            ),
-            # Non-matching package is ignored entirely.
-            _FakePackage("Microsoft.VCRedist", "Microsoft.VCRedist_1.0_x64__8wekyb3d8bbwe"),
+            "Microsoft.BingWeather",
+            "Microsoft.ZuneMusic",
+            "Microsoft.Windows.ShellExperienceHost",  # matches pattern, protected
+            "Microsoft.VCRedist",  # does not match any bloat pattern
         ]
     )
-    monkeypatch.setattr(runner, "_load_appx_package_manager", lambda: pm)
-
+    monkeypatch.setattr(runner, "_run_powershell_capture", shell.capture)
     outcome = runner.run_appx_debloat(_debloat_step())
     assert outcome["success"] is True
     assert "2 aplikasi" in outcome["stdout"]
-    assert pm.removed == [
-        "Microsoft.BingWeather_4.53_x64__8wekyb3d8bbwe",
-        "Microsoft.ZuneMusic_11.0_x64__8wekyb3d8bbwe",
-    ]
+    assert "Microsoft.BingWeather" not in shell.installed
+    assert "Microsoft.ZuneMusic" not in shell.installed
+    assert "Microsoft.Windows.ShellExperienceHost" in shell.installed
 
 
-def test_run_appx_debloat_protected_package_is_never_removed(monkeypatch):
+def test_run_appx_debloat_partial_removal_still_succeeds(monkeypatch):
     monkeypatch.setattr("sys.platform", "win32")
-    monkeypatch.setattr(runner, "_current_user_sid", lambda: "S-1-5-21-1-2-3-1001")
-    pm = _FakePackageManager(
-        [
-            # Both names contain "hub" (a debloat pattern); Feedback Hub is a
-            # normal app that matches, ShellExperienceHost is the protected
-            # shell UI and must never be touched.
-            _FakePackage(
-                "Microsoft.WindowsFeedbackHub",
-                "Microsoft.WindowsFeedbackHub_1.0_x64__8wekyb3d8bbwe",
-            ),
-            _FakePackage(
-                "Microsoft.Windows.ShellExperienceHost",
-                "Microsoft.Windows.ShellExperienceHost_10.0_x64__cw5n1h2txyewy",
-            ),
-        ]
+    shell = _FakeAppxShell(
+        ["Microsoft.BingWeather", "Microsoft.ZuneMusic"],
+        stubborn={"Microsoft.ZuneMusic"},
     )
-    monkeypatch.setattr(runner, "_load_appx_package_manager", lambda: pm)
-    outcome = runner.run_appx_debloat(_debloat_step())
-    assert outcome["success"] is True
-    assert "1 aplikasi" in outcome["stdout"]
-    assert pm.removed == ["Microsoft.WindowsFeedbackHub_1.0_x64__8wekyb3d8bbwe"]
-
-
-def test_run_appx_debloat_no_candidates_is_skipped(monkeypatch):
-    monkeypatch.setattr("sys.platform", "win32")
-    monkeypatch.setattr(runner, "_current_user_sid", lambda: "S-1-5-21-1-2-3-1001")
-    pm = _FakePackageManager(
-        [
-            _FakePackage("Microsoft.VCRedist", "Microsoft.VCRedist_1.0_x64__8wekyb3d8bbwe"),
-        ]
-    )
-    monkeypatch.setattr(runner, "_load_appx_package_manager", lambda: pm)
-    outcome = runner.run_appx_debloat(_debloat_step())
-    assert outcome["success"] is True
-    assert outcome.get("skipped") is True
-
-
-def test_run_appx_debloat_partial_failure_still_succeeds(monkeypatch):
-    monkeypatch.setattr("sys.platform", "win32")
-    monkeypatch.setattr(runner, "_current_user_sid", lambda: "S-1-5-21-1-2-3-1001")
-    # The powershell fallback must be mocked — it must never spawn a real
-    # process during tests.
-    monkeypatch.setattr(runner, "_remove_appx_packages_powershell", lambda _names: (True, ""))
-    pm = _FakePackageManager(
-        [
-            _FakePackage("Microsoft.BingWeather", "Microsoft.BingWeather_4.53_x64__8wekyb3d8bbwe"),
-            _FakePackage("Microsoft.ZuneMusic", "Microsoft.ZuneMusic_11.0_x64__8wekyb3d8bbwe"),
-        ],
-        fail_on={"Microsoft.ZuneMusic_11.0_x64__8wekyb3d8bbwe"},
-    )
-    monkeypatch.setattr(runner, "_load_appx_package_manager", lambda: pm)
+    monkeypatch.setattr(runner, "_run_powershell_capture", shell.capture)
     outcome = runner.run_appx_debloat(_debloat_step())
     # One success is enough — a single stubborn app must not fail the tweak.
     assert outcome["success"] is True
@@ -499,83 +499,61 @@ def test_run_appx_debloat_partial_failure_still_succeeds(monkeypatch):
     assert "Gagal sebagian" in outcome["stdout"]
 
 
-def test_run_appx_debloat_total_failure_reports_error(monkeypatch):
+def test_run_appx_debloat_nothing_removed_reports_error(monkeypatch):
     monkeypatch.setattr("sys.platform", "win32")
-    monkeypatch.setattr(runner, "_current_user_sid", lambda: "S-1-5-21-1-2-3-1001")
-    monkeypatch.setattr(
-        runner, "_remove_appx_packages_powershell", lambda _names: (False, "fallback gagal")
+    shell = _FakeAppxShell(
+        ["Microsoft.BingWeather", "Microsoft.ZuneMusic"],
+        stubborn={"Microsoft.BingWeather", "Microsoft.ZuneMusic"},
     )
-    pm = _FakePackageManager(
-        [
-            _FakePackage("Microsoft.BingWeather", "Microsoft.BingWeather_4.53_x64__8wekyb3d8bbwe"),
-        ],
-        fail_on={"Microsoft.BingWeather_4.53_x64__8wekyb3d8bbwe"},
-    )
-    monkeypatch.setattr(runner, "_load_appx_package_manager", lambda: pm)
+    monkeypatch.setattr(runner, "_run_powershell_capture", shell.capture)
     outcome = runner.run_appx_debloat(_debloat_step())
     assert outcome["success"] is False
-    assert "error" in outcome
+    assert "Tidak ada aplikasi yang dapat dihapus" in outcome["error"]
 
 
-def test_run_appx_debloat_fallback_called_when_native_fails(monkeypatch):
+def test_run_appx_debloat_no_candidates_is_skipped(monkeypatch):
     monkeypatch.setattr("sys.platform", "win32")
-    monkeypatch.setattr(runner, "_current_user_sid", lambda: "S-1-5-21-1-2-3-1001")
-    called_with: list[list[str]] = []
-    monkeypatch.setattr(
-        runner,
-        "_remove_appx_packages_powershell",
-        lambda names: called_with.append(names) or (True, ""),
-    )
-    pm = _FakePackageManager(
-        [
-            _FakePackage("Microsoft.BingWeather", "Microsoft.BingWeather_4.53_x64__8wekyb3d8bbwe"),
-            _FakePackage("Microsoft.ZuneMusic", "Microsoft.ZuneMusic_11.0_x64__8wekyb3d8bbwe"),
-        ],
-        fail_on={"Microsoft.ZuneMusic_11.0_x64__8wekyb3d8bbwe"},
-    )
-    monkeypatch.setattr(runner, "_load_appx_package_manager", lambda: pm)
-    outcome = runner.run_appx_debloat(_debloat_step())
-    assert called_with == [["Microsoft.ZuneMusic"]]
-    assert outcome["success"] is True
-
-
-def test_run_appx_debloat_fallback_removes_failed_packages(monkeypatch):
-    monkeypatch.setattr("sys.platform", "win32")
-    monkeypatch.setattr(runner, "_current_user_sid", lambda: "S-1-5-21-1-2-3-1001")
-
-    def _fake_fallback(names):
-        # The fallback "removes" the failed package, so the manager must stop
-        # listing it when run_appx_debloat re-scans for the accounting.
-        for n in names:
-            for p in pm._packages:
-                if p.Id.Name == n and p.Id.FullName not in pm.removed:
-                    pm.removed.append(p.Id.FullName)
-        return (True, "")
-
-    monkeypatch.setattr(runner, "_remove_appx_packages_powershell", _fake_fallback)
-    pm = _FakePackageManager(
-        [
-            _FakePackage("Microsoft.BingWeather", "Microsoft.BingWeather_4.53_x64__8wekyb3d8bbwe"),
-            _FakePackage("Microsoft.ZuneMusic", "Microsoft.ZuneMusic_11.0_x64__8wekyb3d8bbwe"),
-        ],
-        fail_on={"Microsoft.BingWeather_4.53_x64__8wekyb3d8bbwe"},
-    )
-    monkeypatch.setattr(runner, "_load_appx_package_manager", lambda: pm)
+    shell = _FakeAppxShell(["Microsoft.VCRedist"])
+    monkeypatch.setattr(runner, "_run_powershell_capture", shell.capture)
     outcome = runner.run_appx_debloat(_debloat_step())
     assert outcome["success"] is True
-    assert "2 aplikasi" in outcome["stdout"]
+    assert outcome.get("skipped") is True
 
 
-def test_run_appx_debloat_runtime_missing_reports_error(monkeypatch):
+def test_run_appx_debloat_all_protected_is_skipped(monkeypatch):
+    monkeypatch.setattr("sys.platform", "win32")
+    shell = _FakeAppxShell(["Microsoft.Windows.ShellExperienceHost"])
+    monkeypatch.setattr(runner, "_run_powershell_capture", shell.capture)
+    outcome = runner.run_appx_debloat(_debloat_step())
+    assert outcome["success"] is True
+    assert outcome.get("skipped") is True
+
+
+def test_run_appx_debloat_enumeration_falls_back_to_native(monkeypatch):
+    monkeypatch.setattr("sys.platform", "win32")
+    shell = _FakeAppxShell(["Microsoft.BingWeather"], fail_enumeration=True)
+    monkeypatch.setattr(runner, "_run_powershell_capture", shell.capture)
+    pm = _FakePackageManager(
+        [_FakePackage("Microsoft.BingWeather", "Microsoft.BingWeather_4.53_x64__8wekyb3d8bbwe")]
+    )
+    monkeypatch.setattr(runner, "_load_appx_package_manager", lambda: pm)
+    monkeypatch.setattr(runner, "_current_user_sid", lambda: "S-1-5-21-1-2-3-1001")
+    outcome = runner.run_appx_debloat(_debloat_step())
+    assert outcome["success"] is True
+    assert "1 aplikasi" in outcome["stdout"]
+
+
+def test_run_appx_debloat_enumeration_failure_reports_error(monkeypatch):
     monkeypatch.setattr("sys.platform", "win32")
 
     def _boom() -> object:
         raise RuntimeError("Runtime .NET untuk AppX tidak tersedia")
 
+    monkeypatch.setattr(runner, "_run_powershell_capture", lambda *_: (False, "", "broken"))
     monkeypatch.setattr(runner, "_load_appx_package_manager", _boom)
     outcome = runner.run_appx_debloat(_debloat_step())
     assert outcome["success"] is False
-    assert ".NET" in outcome["error"]
+    assert "Enumerasi AppX gagal" in outcome["error"]
 
 
 def test_load_appx_package_manager_is_idempotent(monkeypatch):

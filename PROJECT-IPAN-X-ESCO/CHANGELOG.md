@@ -2,6 +2,16 @@
 
 ## 0.1.0 - Unreleased
 
+- Debloat Windows (`adv.debloat_windows`) fifth fix (final): switched to the
+  all-users removal the user's manual script confirmed works —
+  `Get-AppxPackage -AllUsers | Remove-AppxPackage -AllUsers` (requires admin;
+  the release EXE runs `requireAdministrator` so the spawned PowerShell inherits
+  the elevated token). Per-user native removal (HRESULT 0x80073CFA) and per-user
+  PowerShell (exit 1) both failed because the packages are provisioned for all
+  users. Verified elevated with `-WhatIf`: all 22 target packages are targeted
+  without removing anything. Flow: enumerate(-AllUsers) -> remove(-AllUsers) ->
+  verify re-scan -> per-package retry -> native last resort -> report the true
+  removed count.
 - Debloat Windows (`adv.debloat_windows`) fourth fix: the PowerShell fallback
   used `Get-AppxPackage -Name @('x')`, which the `-Name` (String) parameter
   rejects with a binding error — so the fallback never actually removed

@@ -430,17 +430,17 @@ ADVANCED_TWEAK_COMMANDS: dict[str, list[TweakStep]] = {
             hive="HKCU",
         ),
     ],
-    # Debloat Windows is executed natively inside the process through pythonnet
-    # -> Windows.Management.Deployment.PackageManager (COM to AppXSVC), with a
-    # per-user PowerShell Remove-AppxPackage fallback. It deliberately does NOT
-    # require admin (requires_admin=False): per-user AppX removal works WITHOUT
-    # elevation, exactly like running Remove-AppxPackage in a normal shell. This
-    # keeps the tweak off the UAC/elevated-helper relaunch path, which is what
-    # failed on custom Windows builds and produced "semua operasi gagal". The
-    # runner recognises the sentinel and runs the in-process implementation.
+    # Debloat Windows is executed in-process using the exact all-users manual
+    # script the user confirmed works when running elevated: Get-AppxPackage
+    # -AllUsers | Remove-AppxPackage -AllUsers (spawned powershell inherits the
+    # app's Administrator token — requireAdministrator). It deliberately does
+    # NOT require admin as a tweak step (requires_admin=False) so it never goes
+    # through the UAC/elevated-helper relaunch path, which failed on custom
+    # Windows builds and produced "semua operasi gagal". The runner recognises
+    # the sentinel and runs the in-process implementation.
     "adv.debloat_windows": [
         TweakStep(
-            description="Hapus aplikasi bawaan Windows (per-user, native)",
+            description="Hapus aplikasi bawaan Windows (All Users)",
             command=[APPSX_DEBLOAT_STEP_ID],
         ),
     ],

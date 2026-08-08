@@ -3,6 +3,16 @@
 ## Build EXE + Windows custom compatibility
 
 - [x] Debloat Windows (`adv.debloat_windows`, item 22 Advanced Tweak): fix
+  kelima (final) — beralih ke perintah All-Users yang terbukti di mesin user:
+  `Get-AppxPackage -AllUsers | ... | Remove-AppxPackage -AllUsers` (wajib
+  Administrator; aplikasi requireAdministrator → powershell anak elevated).
+  Native per-user (`0x80073CFA`) & fallback per-user (`returncode 1`) terbukti
+  gagal di mesin user karena paket ter-provision untuk semua user. Diverifikasi
+  elevated dengan `-WhatIf`: 22/22 paket ter-target tanpa menghapus apa pun.
+  Alur: enumerate(-AllUsers) → remove(-AllUsers) → verify(re-scan) → retry per
+  paket → fallback native → laporan angka nyata. Terverifikasi 2026-08-08
+  (pytest 152 passed, mypy 0, EXE 18,122,375 bytes, verify_exe OK, push GitHub).
+- [x] Debloat Windows (`adv.debloat_windows`, item 22 Advanced Tweak): fix
   keempat — fallback PowerShell diperbaiki dari `Get-AppxPackage -Name @(...)`
   (gagal binding: `-Name` bertipe String, tolak array) menjadi
   `Get-AppxPackage | Where-Object { $names -contains $_.Name } |
