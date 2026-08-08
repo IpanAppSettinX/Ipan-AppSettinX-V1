@@ -52,7 +52,13 @@ tweak_engine 2711/2773/2775) tidak disentuh.
   pre-existing, tidak disentuh); mypy 0 error; **pytest 152 passed,
   4 deselected** (sebelumnya 2 failed → semua hijau). Control matrix 58,
   frontend policy, asset budget valid.
-- Belum di-commit/push (menunggu konfirmasi user; EXE belum di-rebuild).
+- Commit `7911f55` `fix(debloat): fault-tolerant per-package removal + exclude
+  SystemApps` + push ke GitHub (3b2defa..7911f55).
+- Build `.venv` PyInstaller 6.21.0 → `dist/Ipan AppSettinX V1.exe`
+  **18,122,309 bytes**; `verify_exe.py` OK; `dist_new` SHA-256 identik.
+- SHA-256 (dist == dist_new):
+  `8DE236DAB75C6B7EAE62A79404B3D4BCB519425B994647C4D40BD6EC9BD4178A`.
+- File Explorer dibuka ke folder `dist` (oleh build_exe.bat).
 
 ---
 
