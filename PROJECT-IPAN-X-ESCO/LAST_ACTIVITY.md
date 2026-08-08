@@ -74,7 +74,11 @@ tweak_engine 2711/2773/2775) tidak disentuh.
   hitungan operasi).
 - Verifikasi: ruff hanya baseline (runner 127/128/775, tweak_engine 2711/2791/2793
   = 2711/2773/2775 lama yang bergeser +18); mypy 0 error; **pytest 155 passed,
-  4 deselected**. Commit + push + rebuild EXE + Explorer dibuka ke `dist`.
+  4 deselected**. Commit `328b0c4` + push. Build `.venv` PyInstaller 6.21.0 →
+  `dist/Ipan AppSettinX V1.exe` **18,122,898 bytes**; `verify_exe.py` OK;
+  `dist_new` SHA-256 identik; Explorer dibuka ke `dist`.
+- SHA-256 (dist == dist_new):
+  `9FC800408AE60D98E797EE44B843B1904F7A24F48CED52606A11E3C7EA5D71A5`.
 
 ---
 
