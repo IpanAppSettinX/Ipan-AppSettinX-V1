@@ -5,6 +5,144 @@
 > menyelesaikan pekerjaan pada sesi berjalan, agent **wajib memperbarui** file
 > ini (entri terbaru diletakkan paling atas).
 
+## 2026-08-08 (sesi 13) — Debloat Windows: hapus jalur helper UAC + fallback per-user, EXE push GitHub
+
+**Status: Selesai.** User masih melihat "Debloat Windows: semua operasi gagal"
+walau EXE sudah dijalankan sebagai Administrator, padahal script manual
+`Remove-AppxPackage` (per-user) jalan normal di luar aplikasi. Akar masalah:
+step debloat masih `requires_admin=True`, sehingga `execute_tweak` melemparnya
+ke `_run_elevated_guarded` → `run_elevated_steps` → jalur **helper elevasi UAC**
+(`_launch_elevated` relaunch `--apply-plan`). Di Windows custom, relaunch helper
+bisa gagal → setiap step dilaporkan "Helper elevated tidak merespons" →
+"semua operasi gagal". Padahal penghapusan AppX **per-user TIDAK butuh elevasi**
+(karena itu script manual berjalan normal). EXE di-rebuild, verify OK, commit +
+push ke GitHub.
+
+### Verifikasi (probe beku non-destruktif)
+- Probe PyInstaller onefile (frozen) berisi `_load_appx_package_manager()` +
+  `_current_user_sid()` + `FindPackagesForUser` + `RemovePackageAsync(fake)`:
+  - non-elevated: PM OK, 111 paket, fake removal → HRESULT 0x80073CFA ✓
+  - elevated (`Start-Process -Verb RunAs`): identik ✓
+  - di dalam daemon-thread (pola `_run_step_isolated`): identik ✓
+  → CLR/pythonnet/removal SEMUA bekerja di EXE frozen; tersangka = jalur helper.
+
+### Perubahan
+- `src/ipan_optimizer/core/tweak_engine.py`:
+  - Step `adv.debloat_windows` → `requires_admin=False` (in-process, TANPA
+    helper/UAC) + deskripsi jelas. Ini fix utama.
+  - Loop `normal_steps` memberi watchdog 240s khusus step debloat (22+ paket
+    butuh waktu; timeout 20s default bisa memotong operasi).
+  - Pesan "semua operasi gagal" kini menyertakan `Rincian: <error>` pertama
+    agar penyebab nyata terlihat (bukan hanya teks generik UAC).
+- `src/ipan_optimizer/privileged/runner.py`:
+  - `_remove_appx_packages_powershell()` (baru): fallback per-user
+    `Get-AppxPackage -Name @('a','b') | Remove-AppxPackage` (TANPA `-AllUsers`),
+    hidden console, `-NoProfile -NonInteractive -ExecutionPolicy Bypass`,
+    timeout 20s — persis perilaku script manual user. Resolve powershell via
+    `%WINDIR%` dulu (hindari S607), fallback PATH.
+  - `run_appx_debloat()`: bila paket gagal native, panggil fallback tsb, lalu
+    hitung ulang paket yang benar-benar tersisa (`FindPackagesForUser` ulang)
+    supaya angka "N aplikasi dihapus" akurat.
+
+### Test (tests/unit/test_runner.py, +3 → 34 di file itu, total 151 passed)
+- `test_debloat_step_runs_in_process_without_admin` — step katalog kini
+  `requires_admin=False` (mengunci fix).
+- `test_run_appx_debloat_fallback_called_when_native_fails` — fallback dipanggil
+  dengan nama paket yang gagal native.
+- `test_run_appx_debloat_fallback_removes_failed_packages` — akuntansi ulang
+  setelah fallback menghapus.
+- `_FakePackageManager.FindPackagesForUser` kini menyembunyikan paket yang sudah
+  dihapus agar akuntansi akurat; test partial/total failure mem-mock fallback
+  (tidak pernah spawn powershell nyata di CI).
+
+### Gates (hijau)
+- ruff: hanya 6 pre-existing (S110/SIM105 tweak_engine, S603/S607 `_service_exists`,
+  SIM102 nested-if). mypy: 0 error. pytest: **151 passed, 4 deselected**.
+- control matrix 58, frontend policy, asset budget (264,545 bytes) valid.
+
+### Build + push
+- `.venv` PyInstaller 6.21.0 → `dist/Ipan AppSettinX V1.exe` **18,120,467 bytes**;
+  `verify_exe.py` OK; disalin ke `dist_new/` (SHA-256 identik).
+- SHA-256 (dist == dist_new):
+  `30390D67DBD404A31A91B0A424E3EFE55C36EC5438CF022285084E5C5DAA4991`.
+- Commit + push ke GitHub (remote default). Explorer dibuka ke folder `dist`.
+
+---
+
+## 2026-08-08 (sesi 12) — Debloat Windows (adv.debloat_windows) diterapkan native, tidak terhalang UAC lagi
+
+**Status: Selesai.** Fitur 22 "Debloat Windows" di Advanced Tweak tidak lagi
+memanggil `powershell.exe`; kini berjalan **di dalam proses release EXE**
+via pythonnet → `Windows.Management.Deployment.PackageManager` (COM ke
+AppXSVC). Apply tweak benar-benar menghapus bloatware, tidak gagal oleh UAC,
+dan tidak pernah stuck di persen mana pun. EXE di-rebuild (PyInstaller 6.21),
+`verify_exe.py` OK, semua gate hijau, pytest **148 passed**.
+
+### Akar masalah (dikonfirmasi)
+Step lama `adv.debloat_windows` = satu perintah
+`powershell -Command Get-AppxPackage -AllUsers | ... | Remove-AppxPackage`.
+Dua alasan kenapa ini gagal/terblokir UAC di mesin user:
+1. **`Remove-AppxPackage -AllUsers` butuh capability khusus** (trusted-package)
+   yang TIDAK dimiliki proses elevated biasa → `Access is denied`, kecuali
+   running sebagai SYSTEM/TrustedInstaller. Inilah "terhalang UAC" yang dialami.
+2. **`powershell.exe` bisa hang di OS modded** (X-Lite/KernelOS/AtlasOS/
+   ReviOS/Ghost Spectre) bila setengah dihapus → progress macet.
+
+### Perubahan
+- `src/ipan_optimizer/privileged/runner.py`:
+  - Konstanta `APPSX_DEBLOAT_STEP_ID = "__appx_debloat__"` (sentinel).
+  - `run_step()` men-dispatch sentinel ke `run_appx_debloat(step)` SEBELUM
+    jalur subprocess — tidak pernah spawn proses console apa pun.
+  - `run_appx_debloat()`: memuat `PackageManager` via
+    `Type.GetType("Windows.Management.Deployment.PackageManager, ...")`
+    (diverifikasi bekerja, tanpa elevasi sekalipun); SID user via
+    `win32security.LookupAccountName`; enumerate kandidat dengan
+    `FindPackagesForUser(SID)` (real, terverifikasi 111 paket di host dev);
+    hapus per-paket dengan `RemovePackageAsync(FullName)` (overload single-arg,
+    per-user — path yang benar-benar bekerja, tanpa `-AllUsers`).
+  - `_wait_appx_operation()`: polling status WinRT `IAsyncOperationWithProgress`
+    dengan watchdog 25s/paket + `operation.Cancel()` saat timeout → tidak ada
+    yang bisa menahan job thread / progress bar (prinsip isolasi yang sama
+    dengan fix hang 87% sesi 10).
+  - `_is_protected_package()`: proteksi paket sistem kritis (StartMenuExperience
+    Host, ShellExperienceHost, immersivecontrolpanel, Store, UI.Xaml, VCLibs,
+    dll.) agar debloat tidak merusak shell/OOBE.
+  - Hasil: sukses bila ≥1 paket terhapus; gagal-sebagian tidak menggagalkan
+    tweak; hanya gagal total yang dilaporkan error.
+- `src/ipan_optimizer/core/tweak_engine.py`: `adv.debloat_windows` kini `_run`
+  sentinel `[APPSX_DEBLOAT_STEP_ID]` (bukan command powershell).
+- `advanced_catalog.py` + `frontend/js/bridge.js`: `technical_effect` diperbarui
+  ("Remove AppX bloatware via PackageManager (native)").
+
+### Verifikasi (real, non-destruktif)
+- `FindPackagesForUser(SID)` nyata: 22 kandidat bloat terdeteksi, 0 salah
+  proteksi (dry probe tanpa menghapus).
+- `RemovePackageAsync("__palsu__")` nyata: operasi
+  `IAsyncOperationWithProgress[DeploymentResult,DeploymentProgress]` dibuat,
+  status dipoll sampai error HRESULT 0x80073CFA (paket tak ada) — membuktikan
+  jalur operasi+polling+ekstraksi HRESULT bekerja end-to-end.
+- Gates: ruff format bersih; ruff check hanya **6 pre-existing** (S110/SIM105
+  tweak_engine, S603/S607 `_service_exists`, SIM102 nested-if — sama dgn HEAD);
+  mypy **0 error** (50 file); pytest **148 passed** (+8 test baru di
+  `tests/unit/test_runner.py`: dispatch sentinel, matcher/proteksi, removal
+  sukses/sebagian/gagal-total, runtime-missing, dst.); control matrix 58,
+  frontend policy, asset budget (264,545 bytes) valid.
+- Build: `.venv` PyInstaller **6.21.0** → `dist/Ipan AppSettinX V1.exe`
+  **18,117,364 bytes**; `verify_exe.py` → **OK**; disalin ke `dist_new/`
+  (SHA-256 identik).
+- SHA-256 (dist == dist_new):
+  `1790D5BCCA502DD4423AEFA907EB32E0A6A9BAFAD73A944728E6BEFBC44ECE18`.
+
+### Catatan
+- `clr_loader` dan `pythonnet` sudah ter-bundle di
+  `installer/ipan_optimizer.spec` (`collect_all("clr_loader")` + hook `clr.py`
+  pythonnet); tidak ada tambahan spec yang diperlukan.
+- Impor `clr` DIAMANKAN agar selalu `set_runtime(get_netfx())` dulu (isort:skip
+  + type:ignore). Pakai `FindPackagesForUser` (bukan `FindPackages()`/`-AllUsers`)
+  karena yang ini bekerja tanpa trusted-package capability.
+
+---
+
 ## 2026-08-08 (sesi 11) — Hapus step Restart Explorer dari Neural AimSync X (permintaan user)
 
 **Status: Selesai.** Duo `taskkill /f /im explorer.exe` + relaunch explorer

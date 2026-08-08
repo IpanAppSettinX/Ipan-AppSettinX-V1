@@ -44,6 +44,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+APPSX_DEBLOAT_STEP_ID = "__appx_debloat__"
+
 NO_ELEVATION_ENV = "IPAN_OPTIMIZER_NO_ELEVATION"
 _PLAN_DIR_NAME = "ipan_optimizer_plans"
 _PLAN_LIFETIME_SECONDS = 120
@@ -164,6 +166,368 @@ def is_modded_windows() -> bool:
     return probes > 0 and missing >= 2
 
 
+# ── Native AppX debloat (in-process; powershell fallback only) ───
+#
+# Windows Runtime / Desktop Bridge AppX removal used to be delegated to
+# ``powershell -Command Get-AppxPackage ... | Remove-AppxPackage``. That is
+# fragile on real user machines: a stripped/modded Windows (X-Lite, KernelOS,
+# AtlasOS, ReviOS, Ghost Spectre) may ship a half-removed powershell.exe that
+# hangs on profile load or exits non-zero, and a plain per-user (non-elevated)
+# ``Remove-AppxPackage -AllUsers`` is denied unless the process owns a
+# trusted-package capability. This module instead loads
+# ``Windows.Management.Deployment.PackageManager`` through pythonnet and talks
+# to the AppX deployment service (AppXSVC) directly over COM — the very same
+# service the Store and powershell cmdlets call — so:
+#
+#   * the primary path spawns NO console process (no window, no hang),
+#   * per-user removal needs NO elevation, so the tweak runs in-process and
+#     never touches the UAC/elevated-helper relaunch path,
+#   * a missing/broken powershell.exe cannot block the tweak (it is only a
+#     fallback when the native deployment call itself rejects a package),
+#   * every target package gets its own isolated removal attempt so one
+#     protected app cannot fail the whole tweak.
+#
+# Protected system packages are skipped explicitly so the operation can never
+# wedge the OS, mirroring the allow-list the tweak already used.
+
+#: Substring patterns matched (case-insensitively) against the package Name.
+#: Kept aligned with the tweak's original target list plus common bloat.
+_APPSX_DEBLOAT_PATTERNS: tuple[str, ...] = (
+    "3dbuilder",
+    "sway",
+    "bing",
+    "zune",
+    "reader",
+    "maps",
+    "phone",
+    "wallet",
+    "camera",
+    "mail",
+    "calendar",
+    "people",
+    "feedback",
+    "hub",
+    "mixed",
+    "oneconnect",
+    "print3d",
+    "skype",
+    "tips",
+    "microsoft3dviewer",
+    "microsoftofficehub",
+    "windowscommunicationsapps",
+    "windowsmaps",
+    "bingweather",
+    "bingnews",
+    "gethelp",
+    "getstarted",
+    "mspaint",
+    "microsoftstickynotes",
+    "office.onenote",
+    "skypeapp",
+    "windowsalarms",
+    "windowscamera",
+    "xboxapp",
+    "yourphone",
+    "zunemusic",
+    "zunevideo",
+)
+
+#: Names that must never be removed even if they match a pattern — removing
+#: these breaks the shell / OOBE / settings on stock Windows.
+_APPSX_PROTECTED_NAMES: tuple[str, ...] = (
+    "microsoft.windows.startmenuexperiencehost",
+    "microsoft.windows.shellexperiencehost",
+    "microsoft.windows.immersivecontrolpanel",
+    "windows.immersivecontrolpanel",
+    "microsoft.windows.cortana",
+    "microsoft.aad.brokerplugin",
+    "microsoft.accountcontrol",
+    "microsoft.windows.assignedaccesslockapp",
+    "microsoft.windows.oobenetworkconnectionflow",
+    "microsoft.windows.oobenetworkcaptiveportal",
+    "microsoft.windows.parentalcontrols",
+    "microsoft.windows.photos",  # keep: Photos powers image previews
+    "microsoft.windows.secureassessmentbrowser",
+    "microsoft.windows.capturepicker",
+    "microsoft.windows.pinningconfirmation",
+    "microsoft.ui.xaml",
+    "microsoft.vclibs",
+    "microsoft.net.native",
+    "microsoft.windowsstore",
+    "microsoft.storepurchaseapp",
+    "microsoft.desktopappinstaller",
+    "microsoft.windows.applicationcompat",
+)
+
+
+def _name_matches_pattern(name: str) -> bool:
+    lowered = name.lower()
+    return any(pattern in lowered for pattern in _APPSX_DEBLOAT_PATTERNS)
+
+
+def _is_protected_package(name: str) -> bool:
+    lowered = name.lower()
+    if any(protected in lowered for protected in _APPSX_PROTECTED_NAMES):
+        return True
+    # Anything from the Windows infrastructure / framework publisher is
+    # load-bearing (UI XAML, VCLibs, .NET Native runtime, app installer).
+    if "framework" in lowered or "vclibs" in lowered or "xaml" in lowered:
+        return True
+    return "windowsterminal" in lowered  # keeps wt.exe available
+
+
+def _load_appx_package_manager() -> Any:
+    """Return a live ``Windows.Management.Deployment.PackageManager`` instance.
+
+    pythonnet + the ``netfx`` runtime are already bundled in the release EXE
+    (see ``installer/ipan_optimizer.spec``). Raising ``RuntimeError`` here lets
+    the caller report a clean, actionable outcome instead of a crash.
+    """
+    try:
+        from clr_loader import get_netfx
+        from pythonnet import set_runtime  # type: ignore[import-untyped]
+
+        set_runtime(get_netfx())
+        # NOTE: the `clr` module is a pythonnet runtime binding with no stubs;
+        # it must be imported AFTER set_runtime() (isort:skip keeps it here).
+        import clr  # type: ignore[import-untyped]  # noqa: F401,isort:skip
+
+        from System import Activator, Type  # type: ignore[import-not-found]
+    except Exception as exc:  # pragma: no cover - depends on host runtime
+        raise RuntimeError(f"Runtime .NET untuk AppX tidak tersedia: {exc}") from exc
+
+    # Windows.Management.Deployment.PackageManager is a WinRT class; pythonnet
+    # resolves it through the System.Type interop path on .NET Framework.
+    pm_type = Type.GetType(
+        "Windows.Management.Deployment.PackageManager, "
+        "Windows.Management.Deployment, ContentType=WindowsRuntime"
+    )
+    if pm_type is None:
+        # Fall back to direct WinRT activation by name (works on .NET 5+/netfx
+        # with the WinRT interop shim that pythonnet ships).
+        pm_type = Type.GetTypeFromProgID("Windows.Management.Deployment.PackageManager")
+        if pm_type is None:
+            raise RuntimeError("PackageManager WinRT class tidak ditemukan")
+    return Activator.CreateInstance(pm_type)
+
+
+def _current_user_sid() -> str:
+    """Return the current interactive user's SID string (S-1-5-21-...)."""
+    import win32api  # type: ignore[import-untyped]
+    import win32security  # type: ignore[import-untyped]
+
+    sid, _, _ = win32security.LookupAccountName(None, win32api.GetUserName())
+    return str(win32security.ConvertSidToStringSid(sid))
+
+
+def _wait_appx_operation(operation: Any, timeout_s: int = 25) -> tuple[bool, str]:
+    """Poll a WinRT IAsyncOperationWithProgress until it completes.
+
+    ``GetAwaiter().GetResult()`` is not exposed by pythonnet for WinRT async
+    ops, so we poll ``Status`` with a hard watchdog. ``AsyncStatus`` values:
+    0 = Started, 1 = Completed, 2 = Canceled, 3 = Error.
+    """
+    import time
+
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        status = int(operation.Status)
+        if status == 1:  # Completed
+            return True, ""
+        if status == 2:
+            return False, "Operasi dibatalkan."
+        if status == 3:  # Error
+            error_code = 0
+            with contextlib.suppress(Exception):
+                error_code = int(operation.ErrorCode.HResult) & 0xFFFFFFFF
+            return False, f"AppXSVC mengembalikan HRESULT 0x{error_code:08X}."
+        time.sleep(0.05)
+    with contextlib.suppress(Exception):
+        operation.Cancel()
+    return False, f"Operasi AppX melebihi {timeout_s} dtk."
+
+
+def _remove_appx_package(package_manager: Any, package_full_name: str) -> tuple[bool, str]:
+    """Remove one package (current user) via ``RemovePackageAsync``."""
+    try:
+        operation = package_manager.RemovePackageAsync(package_full_name)
+    except Exception as exc:
+        return False, f"gagal memulai removal: {exc}"
+    return _wait_appx_operation(operation)
+
+
+def _remove_appx_packages_powershell(names: list[str]) -> tuple[bool, str]:
+    """Fallback: per-user ``Remove-AppxPackage`` (no ``-AllUsers``).
+
+    Mirrors the manual PowerShell script that users confirm removes bloatware
+    without errors: enumerate the exact package names and remove them for the
+    current user. This is only reached when the native deployment call above
+    could not remove something, so the "no powershell.exe" guarantee holds for
+    the normal path. The command runs with a hidden console, no profile, and a
+    short timeout so a broken powershell on stripped Windows can never hang the
+    apply job (watchdog still bounds it).
+    """
+    if not names:
+        return True, ""
+    quoted = ",".join("'" + n.replace("'", "''") + "'" for n in names)
+    script = (
+        "$ErrorActionPreference='Continue'; "
+        f"Get-AppxPackage -Name @({quoted}) | "
+        "Remove-AppxPackage -ErrorAction SilentlyContinue"
+    )
+    # Resolve powershell through %WINDIR% (avoids S607 partial-path); fall back
+    # to PATH only when the canonical location is missing (e.g. stripped OS).
+    powershell_path = os.path.expandvars(r"%WINDIR%\System32\WindowsPowerShell\v1.0\powershell.exe")
+    if not Path(powershell_path).is_file():
+        powershell_path = "powershell"
+    try:
+        result = subprocess.run(  # noqa: S603 - trusted system package names
+            [
+                powershell_path,
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                script,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            shell=False,
+            **_hidden_console_kwargs(),
+        )
+    except subprocess.TimeoutExpired:
+        return False, "powershell fallback melebihi batas waktu."
+    except (OSError, subprocess.SubprocessError) as exc:
+        return False, f"powershell fallback gagal: {exc}"
+    if result.returncode != 0:
+        return False, (
+            result.stderr.strip()[:300] or f"powershell fallback returncode {result.returncode}"
+        )
+    return True, result.stdout.strip()[:200]
+
+
+def run_appx_debloat(step: Any) -> dict[str, Any]:
+    """Execute the Debloat Windows tweak for the CURRENT user, in-process.
+
+    Primary path is native: pythonnet -> ``PackageManager.RemovePackageAsync``
+    (COM to AppXSVC), no console process and no elevation required. If a package
+    cannot be removed natively, a per-user ``Remove-AppxPackage`` fallback
+    (matching the manual script users confirm works) is attempted. Every target
+    package is isolated so one protected/stubborn app never fails the tweak;
+    the step only reports failure when *nothing* could be removed.
+    """
+    if sys.platform != "win32":
+        return {
+            "description": step.description,
+            "success": False,
+            "error": "Tweak hanya berjalan di Windows.",
+            "requires_admin": step.requires_admin,
+        }
+    try:
+        package_manager = _load_appx_package_manager()
+    except RuntimeError as exc:
+        return {
+            "description": step.description,
+            "success": False,
+            "error": str(exc),
+            "requires_admin": step.requires_admin,
+        }
+
+    try:
+        user_sid = _current_user_sid()
+    except Exception as exc:
+        return {
+            "description": step.description,
+            "success": False,
+            "error": f"Tidak dapat membaca SID user: {exc}",
+            "requires_admin": step.requires_admin,
+        }
+
+    # Enumerate candidate packages for the current user.
+    try:
+        candidates = [
+            package
+            for package in package_manager.FindPackagesForUser(user_sid)
+            if _name_matches_pattern(str(package.Id.Name))
+        ]
+    except Exception as exc:
+        return {
+            "description": step.description,
+            "success": False,
+            "error": f"Enumerasi AppX gagal: {exc}",
+            "requires_admin": step.requires_admin,
+        }
+
+    if not candidates:
+        return {
+            "description": step.description,
+            "success": True,
+            "stdout": "Tidak ada aplikasi bawaan yang cocok; Windows sudah bersih.",
+            "requires_admin": step.requires_admin,
+            "skipped": True,
+        }
+
+    removed = 0
+    attempted = 0
+    last_error = ""
+    failed_names: list[str] = []
+    for package in candidates:
+        name = str(package.Id.Name)
+        if _is_protected_package(name):
+            continue
+        attempted += 1
+        ok, detail = _remove_appx_package(package_manager, str(package.Id.FullName))
+        if ok:
+            removed += 1
+        else:
+            failed_names.append(name)
+            last_error = f"{name}: {detail}"
+
+    # Fallback: per-user Remove-AppxPackage (no -AllUsers), mirroring the manual
+    # script that works on the user's machine. Covers builds/editions where the
+    # native deployment call is rejected while the standard cmdlet succeeds.
+    if failed_names:
+        ok, detail = _remove_appx_packages_powershell(failed_names)
+        if ok:
+            # Count only packages that actually left this user's deployment.
+            remaining = {str(pkg.Id.Name) for pkg in package_manager.FindPackagesForUser(user_sid)}
+            newly_removed = sum(1 for n in failed_names if n not in remaining)
+            removed += newly_removed
+            if newly_removed > 0:
+                last_error = ""
+            else:
+                last_error = f"{'; '.join(failed_names[:3])}: {detail or 'tetap terpasang'}"
+        else:
+            last_error = f"{'; '.join(failed_names[:3])}: {detail}"
+
+    if removed > 0:
+        note = f"{removed} aplikasi bawaan dihapus." + (
+            f" Gagal sebagian ({last_error})" if last_error else ""
+        )
+        return {
+            "description": step.description,
+            "success": True,
+            "stdout": note,
+            "requires_admin": step.requires_admin,
+        }
+    if attempted == 0:
+        return {
+            "description": step.description,
+            "success": True,
+            "stdout": "Semua aplikasi yang cocok dilindungi sistem; tidak ada yang dihapus.",
+            "requires_admin": step.requires_admin,
+            "skipped": True,
+        }
+    return {
+        "description": step.description,
+        "success": False,
+        "error": f"Tidak ada aplikasi yang dapat dihapus. Terakhir: {last_error}",
+        "requires_admin": step.requires_admin,
+    }
+
+
 def resolve_command(command: list[str]) -> list[str]:
     """Expand env vars and wrap CMD internal commands for ``shell=False``.
 
@@ -238,7 +602,14 @@ def run_step(step: Any) -> dict[str, Any]:
             "requires_admin": step.requires_admin,
         }
     try:
-        # Special case FIRST: a shell relaunch must never go through CMD or be
+        # Special case FIRST: the Debloat Windows tweak runs natively through
+        # pythonnet -> Windows.Management.Deployment.PackageManager (COM to
+        # AppXSVC). It must never spawn powershell.exe: on stripped Windows a
+        # half-removed powershell hangs the apply job, and a per-user
+        # Remove-AppxPackage -AllUsers is denied without elevation.
+        if step.command and step.command[0] == APPSX_DEBLOAT_STEP_ID:
+            return run_appx_debloat(step)
+        # Special case: a shell relaunch must never go through CMD or be
         # waited on (see _is_explorer_relaunch). Handle it before resolve_command
         # rewrites "start" into "cmd /c start".
         if _is_explorer_relaunch(step.command):

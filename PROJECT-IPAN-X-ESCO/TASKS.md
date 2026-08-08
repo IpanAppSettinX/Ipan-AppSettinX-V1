@@ -2,6 +2,31 @@
 
 ## Build EXE + Windows custom compatibility
 
+- [x] Debloat Windows (`adv.debloat_windows`, item 22 Advanced Tweak): fix
+  kedua — step kini `requires_admin=False` sehingga **dijalankan in-process
+  langsung**, TIDAK lagi melewati jalur helper elevasi UAC (`_launch_elevated`
+  relaunch `--apply-plan`) yang menjadi penyebab "semua operasi gagal" walau EXE
+  sudah dijalankan Administrator di Windows custom. Per-user AppX removal tidak
+  butuh elevasi (sama seperti script manual `Remove-AppxPackage` yang terbukti
+  jalan di luar aplikasi). Ditambah fallback `Get-AppxPackage -Name ... |
+  Remove-AppxPackage` (per-user, tanpa `-AllUsers`) bila removal native gagal,
+  watchdog 240s khusus step debloat (agar tidak terpotong/tidak hang), dan pesan
+  error menyertakan `Rincian:` pertama. Terverifikasi 2026-08-08 (probe frozen
+  non-elevated/elevated/daemon-thread OK; pytest 151 passed, mypy 0, EXE
+  18,120,467 bytes, verify_exe OK, push GitHub).
+- [x] Debloat Windows (`adv.debloat_windows`, item 22 Advanced Tweak) kini
+  diterapkan **native di dalam proses** lewat pythonnet →
+  `Windows.Management.Deployment.PackageManager` (COM ke AppXSVC), TANPA
+  `powershell.exe` lagi. Akar masalah lama: `Get-AppxPackage -AllUsers |
+  Remove-AppxPackage` gagal/terblokir karena (a) `Remove-AppxPackage -AllUsers`
+  butuh capability khusus (trusted-package) walau elevated, (b) powershell yang
+  setengah-dihapus pada OS modded bisa hang. Implementasi baru meng-enum via
+  `FindPackagesForUser(SID)` (current user), menghapus per-paket via
+  `RemovePackageAsync(FullName)` dengan watchdog 25s/paket (tidak pernah stuck),
+  memproteksi paket sistem yang membahayakan shell/OOBE/Store, dan melaporkan
+  sukses bila >=1 paket terhapus (gagal sebagian tidak menggagalkan tweak).
+  Terverifikasi 2026-08-08 (pytest 148 passed, mypy 0 error, gate hijau, EXE
+  18,117,364 bytes, verify_exe OK, dist==dist_new).
 - [x] Hapus step Restart Explorer (`taskkill /f /im explorer.exe` + relaunch)
   dari Neural AimSync X (`aim_stabilizer`) atas permintaan user — kill/restart
   shell dianggap mengganggu dan tweak tetap berfungsi tanpanya. Step lain

@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ipan_optimizer.privileged.runner import (
+    APPSX_DEBLOAT_STEP_ID,
     is_modded_windows,
     run_elevated_steps,
     run_step,
@@ -429,24 +430,18 @@ ADVANCED_TWEAK_COMMANDS: dict[str, list[TweakStep]] = {
             hive="HKCU",
         ),
     ],
+    # Debloat Windows is executed natively inside the process through pythonnet
+    # -> Windows.Management.Deployment.PackageManager (COM to AppXSVC), with a
+    # per-user PowerShell Remove-AppxPackage fallback. It deliberately does NOT
+    # require admin (requires_admin=False): per-user AppX removal works WITHOUT
+    # elevation, exactly like running Remove-AppxPackage in a normal shell. This
+    # keeps the tweak off the UAC/elevated-helper relaunch path, which is what
+    # failed on custom Windows builds and produced "semua operasi gagal". The
+    # runner recognises the sentinel and runs the in-process implementation.
     "adv.debloat_windows": [
-        _run(
-            [
-                "powershell",
-                "-Command",
-                (
-                    "Get-AppxPackage -AllUsers | Where-Object "
-                    "{$_.Name -match '3DBuilder|Sway|Bing|Zune|Reader|Maps"
-                    "|Phone|Wallet|Camera|Mail|Calendar|People|Feedback|Hub"
-                    "|Mixed|OneConnect|Print3D|Skype|Tips|Microsoft3DViewer"
-                    "|MicrosoftOfficeHub|WindowsCommunicationsApps|WindowsMaps"
-                    "|BingWeather|BingNews|GetHelp|Getstarted|MSPaint"
-                    "|MicrosoftStickyNotes|Office.OneNote|SkypeApp"
-                    "|WindowsAlarms|WindowsCamera|XboxApp|YourPhone"
-                    "|ZuneMusic|ZuneVideo'} | "
-                    "Remove-AppxPackage -ErrorAction SilentlyContinue"
-                ),
-            ]
+        TweakStep(
+            description="Hapus aplikasi bawaan Windows (per-user, native)",
+            command=[APPSX_DEBLOAT_STEP_ID],
         ),
     ],
     "adv.boost_all_games": [
@@ -2723,7 +2718,14 @@ def execute_tweak(
     outcomes: list[dict[str, Any]] = []
     for step in normal_steps:
         _report(f"{title}: {step.description}")
-        outcomes.append(_run_step_guarded(step))
+        # The native AppX debloat removes many packages and needs more than the
+        # default 20 s watchdog; a long run must never be aborted (which would
+        # misreport a skipped success), nor may it ever freeze the job thread
+        # (the watchdog still bounds it).
+        if step.command == [APPSX_DEBLOAT_STEP_ID]:
+            outcomes.append(_run_step_guarded(step, timeout=240))
+        else:
+            outcomes.append(_run_step_guarded(step))
         done += 1
     if admin_steps:
         _report(f"{title}: elevasi UAC untuk {len(admin_steps)} operasi admin")
@@ -2737,6 +2739,12 @@ def execute_tweak(
             result.failed += 1
             result.success = False
     if result.applied == 0 and result.failed > 0:
+        # Surface the first real failure reason so the actual cause is visible
+        # instead of only the generic UAC/modded-Windows explanation.
+        detail = next(
+            (str(out.get("error", "")).strip() for out in outcomes if not out.get("success")),
+            "",
+        )
         result.message = (
             f"{title}: semua operasi gagal. "
             "Tweak yang butuh hak Administrator tidak bisa diterapkan bila "
@@ -2744,6 +2752,8 @@ def execute_tweak(
             "(AtlasOS/ReviOS/Ghost Spectre/dll.) beberapa service mungkin "
             "sudah dihapus sehingga tweak terkait tidak bisa diterapkan."
         )
+        if detail:
+            result.message += f" Rincian: {detail}"
         result.success = False
     elif result.failed > 0:
         suffix = (

@@ -2,6 +2,23 @@
 
 ## 0.1.0 - Unreleased
 
+- Debloat Windows (`adv.debloat_windows`) second fix: the tweak no longer goes
+  through the UAC/elevated-helper relaunch path (which failed with "semua
+  operasi gagal" even when the EXE ran as Administrator on custom Windows).
+  The step now runs in-process with `requires_admin=False` — per-user AppX
+  removal needs no elevation, matching the manual `Remove-AppxPackage` script
+  users confirm works. Added a per-user PowerShell fallback (no `-AllUsers`) for
+  packages the native deployment call cannot remove, a 240 s watchdog specific
+  to this step, and richer error detail in the failure message.
+- Fixed Debloat Windows (`adv.debloat_windows`) so Apply really removes the
+  bundled bloatware: replaced the `powershell.exe Get-AppxPackage -AllUsers |
+  Remove-AppxPackage` command (which fails or hangs — `-AllUsers` needs a
+  trusted-package capability even when elevated, and stripped Windows can ship
+  a broken powershell) with a native in-process implementation via pythonnet →
+  `Windows.Management.Deployment.PackageManager` (COM to AppXSVC). Each target
+  package is removed per-user with its own 25 s watchdog (nothing can freeze
+  the progress bar); system-critical packages are protected; one stubborn app
+  never fails the whole tweak.
 - Established specification-driven project structure.
 - Added safe fake/Dry Run architecture and initial local UI.
 - Added capability, transaction, control-matrix, security, and packaging gates.

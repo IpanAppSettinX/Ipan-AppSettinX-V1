@@ -238,7 +238,10 @@ ADVANCED_TWEAK_CATALOG: tuple[AdvancedTweakEntry, ...] = (
         category="Gaming",
         safety="caution",
         summary="Menghapus aplikasi bawaan Windows yang tidak dibutuhkan.",
-        technical_effect="Remove-AppxPackage untuk bloatware (3DBuilder, Sway, dll).",
+        technical_effect=(
+            "Hapus AppX bloatware via PackageManager (native, tanpa "
+            "powershell.exe): 3DBuilder, Sway, dll."
+        ),
         warning="Beberapa app bawaan tidak bisa diinstal ulang dengan mudah.",
     ),
     AdvancedTweakEntry(
