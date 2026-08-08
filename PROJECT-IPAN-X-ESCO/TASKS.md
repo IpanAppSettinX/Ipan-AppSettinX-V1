@@ -2,6 +2,14 @@
 
 ## Build EXE + Windows custom compatibility
 
+- [x] Debloat Windows (`adv.debloat_windows`, item 22 Advanced Tweak): laporan
+  hasil kini menampilkan jumlah paket yang benar-benar dihapus, bukan "1 operasi"
+  (hitungan step). Akar masalah: `execute_tweak` menghitung STEP sukses, padahal
+  tweak debloat = 1 step yang menghapus banyak aplikasi; jumlah paket hanya ada
+  di stdout step. Fix: saat step debloat sukses, pesan ringkasan memakai
+  stdout-nya ("N aplikasi bawaan dihapus."); tweak lain tetap hitungan operasi.
+  Test baru `tests/unit/test_tweak_engine.py` (3 kasus). Terverifikasi 2026-08-09
+  (pytest 155 passed, mypy 0, ruff hanya baseline, EXE rebuild + push).
 - [x] Debloat Windows (`adv.debloat_windows`, item 22 Advanced Tweak): fix
   keenam (hardening fix ke-5) — removal kini per-paket tahan-gagal. Pipa
   `Remove-AppxPackage -AllUsers` lama membatalkan seluruh batch saat paket

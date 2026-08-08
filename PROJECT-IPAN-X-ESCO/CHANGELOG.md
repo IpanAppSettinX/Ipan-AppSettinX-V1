@@ -2,6 +2,11 @@
 
 ## 0.1.0 - Unreleased
 
+- Debloat Windows (`adv.debloat_windows`) summary now shows the real number of
+  removed packages instead of the step-only "1 operasi": `execute_tweak`
+  surfaced the step count (the tweak is a single step that removes many apps).
+  When the debloat step succeeds, the message becomes e.g.
+  "Debloat Windows: 22 aplikasi bawaan dihapus."
 - Debloat Windows (`adv.debloat_windows`) sixth fix (hardening): the piped
   `Remove-AppxPackage -AllUsers` batch aborted the whole run when the first
   package threw a terminating COMException. Removal is now per-package inside

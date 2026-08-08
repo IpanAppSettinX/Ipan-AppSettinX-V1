@@ -60,6 +60,22 @@ tweak_engine 2711/2773/2775) tidak disentuh.
   `8DE236DAB75C6B7EAE62A79404B3D4BCB519425B994647C4D40BD6EC9BD4178A`.
 - File Explorer dibuka ke folder `dist` (oleh build_exe.bat).
 
+### Tindak lanjut (laporan user: "kenapa cuman 1 operasi?")
+- Root cause: `execute_tweak` melaporkan jumlah STEP yang sukses, bukan jumlah
+  aplikasi. Tweak `adv.debloat_windows` didefinisikan sebagai SATU step (yang di
+  dalamnya menghapus banyak paket), jadi ringkasannya selalu
+  "Debloat Windows: 1 operasi berhasil diterapkan." — menyesatkan; jumlah paket
+  nyata ("N aplikasi bawaan dihapus.") hanya ada di stdout step.
+- Fix di `src/ipan_optimizer/core/tweak_engine.py`: saat seluruh step sukses dan
+  tweak mengandung step debloat, pesan ringkasan kini memakai stdout step
+  (`Debloat Windows: N aplikasi bawaan dihapus.`); tweak lain tetap memakai
+  hitungan step. Menambah `tests/unit/test_tweak_engine.py` (3 test: pesan debloat
+  memakai hitungan paket, fallback step-only bila stdout kosong, multi-step tetap
+  hitungan operasi).
+- Verifikasi: ruff hanya baseline (runner 127/128/775, tweak_engine 2711/2791/2793
+  = 2711/2773/2775 lama yang bergeser +18); mypy 0 error; **pytest 155 passed,
+  4 deselected**. Commit + push + rebuild EXE + Explorer dibuka ke `dist`.
+
 ---
 
 ## 2026-08-08 (sesi 16) — Debloat Windows: beralih ke perintah All-Users (Get-AppxPackage -AllUsers | Remove-AppxPackage -AllUsers)

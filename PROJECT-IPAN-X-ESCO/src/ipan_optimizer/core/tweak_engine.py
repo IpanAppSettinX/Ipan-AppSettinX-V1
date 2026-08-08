@@ -2768,7 +2768,25 @@ def execute_tweak(
         )
     else:
         suffix = " (Windows modded: komponen yang hilang dilewati dengan aman.)" if modded else ""
-        result.message = f"{title}: {result.applied} operasi berhasil diterapkan.{suffix}"
+        # The Debloat Windows step is ONE operation but removes MANY packages;
+        # its stdout carries the real count ("N aplikasi bawaan dihapus"), so
+        # surface it instead of the misleading step-only "1 operasi".
+        has_debloat = any(step.command == [APPSX_DEBLOAT_STEP_ID] for step in steps_def)
+        debloat_detail = ""
+        if has_debloat:
+            debloat_detail = next(
+                (
+                    str(out.get("stdout", "")).strip()
+                    for out in outcomes
+                    if out.get("success") and str(out.get("stdout", "")).strip()
+                ),
+                "",
+            )
+        result.message = (
+            f"{title}: {debloat_detail}"
+            if debloat_detail
+            else f"{title}: {result.applied} operasi berhasil diterapkan.{suffix}"
+        )
     if progress is not None:
         try:
             progress(100, result.message)
