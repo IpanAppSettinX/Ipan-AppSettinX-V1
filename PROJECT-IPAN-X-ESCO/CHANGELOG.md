@@ -2,6 +2,15 @@
 
 ## 0.1.0 - Unreleased
 
+- Debloat Windows (`adv.debloat_windows`) sixth fix (hardening): the piped
+  `Remove-AppxPackage -AllUsers` batch aborted the whole run when the first
+  package threw a terminating COMException. Removal is now per-package inside
+  its own `try`/`catch` (`-AllUsers` first, then per-user, `-Confirm:$false`),
+  so one in-use app can never fail the rest; survivors are emitted as
+  `FAILED:<name>|<snippet>;;...` and used in the final error detail.
+  Enumeration now excludes SystemApps (`InstallLocation -notlike
+  "$env:WINDIR\SystemApps\*"` — removal throws 0x80070032 "part of Windows")
+  and `microsoft.windows.peopleexperiencehost` was added to the protected list.
 - Debloat Windows (`adv.debloat_windows`) fifth fix (final): switched to the
   all-users removal the user's manual script confirmed works —
   `Get-AppxPackage -AllUsers | Remove-AppxPackage -AllUsers` (requires admin;

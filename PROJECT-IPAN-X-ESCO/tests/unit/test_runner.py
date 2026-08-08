@@ -378,14 +378,14 @@ class _FakeAppxShell:
         if self.fail_enumeration and "-match" in script and "Remove-AppxPackage" not in script:
             return (False, "", "deployment service tidak tersedia")
         if "Remove-AppxPackage" in script:
-            if "$names" in script:
-                names = _parse_names(script)
-                self.installed = [n for n in self.installed if n not in names or n in self.stubborn]
-            else:
-                match = re.search(r"\.Name -eq '([^']+)'", script)
-                if match:
-                    name = match.group(1).replace("''", "'")
-                    self.installed = [n for n in self.installed if n != name or n in self.stubborn]
+            failed = []
+            for n in _parse_names(script):
+                if n in self.installed and n not in self.stubborn:
+                    self.installed.remove(n)
+                elif n in self.installed:
+                    failed.append(n + "|stubborn")
+            if failed:
+                return (True, "FAILED:" + ";;".join(failed), "")
             return (True, "", "")
         if "$names" in script:
             names = _parse_names(script)
@@ -396,7 +396,9 @@ class _FakeAppxShell:
 
 
 def _parse_names(script: str) -> list[str]:
-    match = re.search(r"\$names = @\('(.*)'\)", script)
+    # Non-greedy: the remove script appends more single-quoted strings after the
+    # $names array, so a greedy `.*` used to swallow the rest of the script.
+    match = re.search(r"\$names = @\('(.*?)'\)", script)
     if not match:
         return []
     return match.group(1).replace("''", "'").split("','")
@@ -448,22 +450,22 @@ def test_run_step_dispatches_native_debloat(monkeypatch):
 
 def test_debloat_scripts_use_all_users():
     """The generated PowerShell commands must use -AllUsers (the documented
-    all-user removal the user's manual script relies on) and must filter via
+    all-user removal), isolate each package with try/catch, and filter via
     Where-Object (Get-AppxPackage -Name rejects arrays)."""
     remove = runner._debloat_remove_script(["Microsoft.BingWeather"])
     assert "Get-AppxPackage -AllUsers" in remove
-    assert "Remove-AppxPackage -AllUsers" in remove
-    assert "$names -contains $_.Name" in remove
-    assert "-Name @(" not in remove
+    assert "Remove-AppxPackage -Package" in remove
+    assert "-AllUsers" in remove
+    assert "-Confirm:$false" in remove
+    assert "foreach" in remove and "try {" in remove and "catch" in remove
+    assert "$names -contains" not in remove
     target = runner._debloat_target_names_script()
     assert "Get-AppxPackage -AllUsers" in target
     assert "-match" in target
+    assert "SystemApps" in target  # SystemApps are part of Windows, never removable
     verify = runner._debloat_verify_script(["Microsoft.BingWeather", "Microsoft.ZuneMusic"])
     assert "Get-AppxPackage -AllUsers" in verify
     assert "Microsoft.ZuneMusic" in verify
-    single = runner._debloat_remove_single_script("Microsoft.BingWeather")
-    assert "Remove-AppxPackage -AllUsers" in single
-    assert ".Name -eq 'Microsoft.BingWeather'" in single
 
 
 def test_run_appx_debloat_removes_all_matching(monkeypatch):
@@ -522,11 +524,15 @@ def test_run_appx_debloat_no_candidates_is_skipped(monkeypatch):
 
 def test_run_appx_debloat_all_protected_is_skipped(monkeypatch):
     monkeypatch.setattr("sys.platform", "win32")
-    shell = _FakeAppxShell(["Microsoft.Windows.ShellExperienceHost"])
+    # PeopleExperienceHost matches a pattern ("people") but is a protected
+    # SystemApp (part of Windows) that must never enter the target list.
+    shell = _FakeAppxShell(["Microsoft.Windows.PeopleExperienceHost"])
     monkeypatch.setattr(runner, "_run_powershell_capture", shell.capture)
     outcome = runner.run_appx_debloat(_debloat_step())
     assert outcome["success"] is True
     assert outcome.get("skipped") is True
+    # Nothing was touched — the protected SystemApp stays installed.
+    assert shell.installed == ["Microsoft.Windows.PeopleExperienceHost"]
 
 
 def test_run_appx_debloat_enumeration_falls_back_to_native(monkeypatch):

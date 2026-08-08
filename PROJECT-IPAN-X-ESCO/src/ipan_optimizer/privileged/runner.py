@@ -251,6 +251,11 @@ _APPSX_PROTECTED_NAMES: tuple[str, ...] = (
     "microsoft.windows.secureassessmentbrowser",
     "microsoft.windows.capturepicker",
     "microsoft.windows.pinningconfirmation",
+    # SystemApps under C:\Windows\SystemApps are part of Windows and cannot be
+    # uninstalled (Remove-AppxPackage -AllUsers throws 0x80070032 "part of
+    # Windows"); they are excluded from targets and protected here for the
+    # native fallback path too.
+    "microsoft.windows.peopleexperiencehost",
     "microsoft.ui.xaml",
     "microsoft.vclibs",
     "microsoft.net.native",
@@ -402,29 +407,51 @@ def _run_powershell_capture(script: str, timeout: int = 45) -> tuple[bool, str, 
 
 def _debloat_target_names_script() -> str:
     """Enumerate every package registered for ALL users whose Name matches the
-    tweak's bloat list (the manual-script enumeration)."""
+    tweak's bloat list (the manual-script enumeration), excluding SystemApps
+    (C:\\Windows\\SystemApps\\...) which are part of Windows and can never be
+    uninstalled."""
     pattern = "|".join(_APPSX_DEBLOAT_PATTERNS)
     return (
         "$ErrorActionPreference='Continue'; "
-        f"Get-AppxPackage -AllUsers | Where-Object {{ $_.Name -match '{pattern}' }} | "
-        "ForEach-Object { $_.Name }"
+        "Get-AppxPackage -AllUsers | Where-Object { "
+        f"$_.Name -match '{pattern}' -and "
+        '$_.InstallLocation -notlike "$env:WINDIR\\SystemApps\\*" '
+        "} | ForEach-Object { $_.Name }"
     )
 
 
 def _debloat_remove_script(names: list[str]) -> str:
-    """Remove the given packages for ALL users (the manual-script command).
+    """Remove the given packages, one at a time, for ALL users first then for
+    the current user.
 
-    ``Get-AppxPackage -AllUsers`` requires admin; ``Remove-AppxPackage
-    -AllUsers`` is the documented all-user removal. Both are used exactly as in
-    the manual script the user confirmed works on their machine. ``-Name`` can
-    not take an array, so the targets are filtered through ``Where-Object``.
+    Each package runs inside its own ``try``/``catch`` so a single failure
+    (e.g. an in-use app) can NEVER abort the rest of the batch — that is what
+    happened with the piped ``-AllUsers`` command when the first package threw a
+    terminating COMException. Every removal uses ``-Confirm:$false`` so no
+    interactive prompt can block the apply. Packages that still fail are emitted
+    as ``FAILED:<name>|<snippet>;;...`` on stdout so the caller can report the
+    exact culprits.
     """
     quoted = ",".join("'" + n.replace("'", "''") + "'" for n in names)
     return (
-        "$ErrorActionPreference='Continue'; "
+        "$ErrorActionPreference='Stop'; "
         f"$names = @({quoted}); "
-        "Get-AppxPackage -AllUsers | Where-Object { $names -contains $_.Name } | "
-        "Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue"
+        "$failed = @(); "
+        "foreach ($name in $names) { "
+        "$pkg = Get-AppxPackage -AllUsers | Where-Object { $_.Name -eq $name } | "
+        "Select-Object -First 1; "
+        "if (-not $pkg) { continue }; "
+        "$err1 = ''; $err2 = ''; $removed = $false; "
+        "try { Remove-AppxPackage -Package $pkg.PackageFullName -AllUsers "
+        "-Confirm:$false -ErrorAction Stop; $removed = $true } "
+        "catch { $err1 = $_.Exception.Message }; "
+        "if (-not $removed) { "
+        "try { Remove-AppxPackage -Package $pkg.PackageFullName "
+        "-Confirm:$false -ErrorAction Stop; $removed = $true } "
+        "catch { $err2 = $_.Exception.Message } }; "
+        "if (-not $removed) { $failed += ($name + '|' + $err1 + ' ' + $err2) } "
+        "}; "
+        "if ($failed.Count -gt 0) { Write-Output ('FAILED:' + ($failed -join ';;')) }"
     )
 
 
@@ -437,17 +464,6 @@ def _debloat_verify_script(names: list[str]) -> str:
         f"$names = @({quoted}); "
         "Get-AppxPackage -AllUsers | Where-Object { $names -contains $_.Name } | "
         "ForEach-Object { $_.Name }"
-    )
-
-
-def _debloat_remove_single_script(name: str) -> str:
-    """Remove ONE package for all users WITHOUT -ErrorAction SilentlyContinue so
-    a real failure surfaces in stderr for the retry pass."""
-    escaped = name.replace("'", "''")
-    return (
-        "$ErrorActionPreference='Continue'; "
-        f"Get-AppxPackage -AllUsers | Where-Object {{ $_.Name -eq '{escaped}' }} | "
-        "Remove-AppxPackage -AllUsers"
     )
 
 
@@ -489,15 +505,14 @@ def _debloat_enumerate_targets() -> tuple[list[str], str]:
 
 def run_appx_debloat(step: Any) -> dict[str, Any]:
     """Execute the Debloat Windows tweak in-process, removing every target for
-    ALL users — exactly the ``Get-AppxPackage -AllUsers | Remove-AppxPackage
-    -AllUsers`` manual script the user confirmed works when the app runs
-    elevated (the release EXE requires Administrator, and the spawned
-    powershell inherits that token).
+    ALL users — the same all-user removal the user's manual script confirmed
+    works when the app runs elevated (the release EXE requires Administrator,
+    and the spawned powershell inherits that token).
 
-    Flow: enumerate -> remove all-users -> verify -> per-package retry for any
-    that remain -> final native fallback -> report. Nothing is reported as
-    removed unless a re-scan confirms it, and a single stubborn package can
-    never fail the whole tweak.
+    Flow: enumerate (excluding SystemApps) -> per-package removal that tries
+    ``-AllUsers`` then per-user, isolating each package so one failure can never
+    abort the rest -> verify by re-scan -> native COM last resort -> report the
+    TRUE number of packages actually removed.
     """
     if sys.platform != "win32":
         return {
@@ -533,20 +548,18 @@ def run_appx_debloat(step: Any) -> dict[str, Any]:
             "skipped": True,
         }
 
-    # Primary removal: the proven all-users command.
-    _run_powershell_capture(_debloat_remove_script(targets))
+    # Removal: one PowerShell pass, per-package try/catch (never aborts the
+    # batch), all-users first then per-user.
+    _ok, stdout, _stderr = _run_powershell_capture(_debloat_remove_script(targets), timeout=120)
+    failed_info: dict[str, str] = {}
+    if stdout.startswith("FAILED:"):
+        for part in stdout[len("FAILED:") :].split(";;"):
+            if "|" in part:
+                name, err = part.split("|", 1)
+                failed_info[name.strip()] = err.strip()[:160]
 
     # Verify what actually remains.
     still = [n for n in targets if n in _debloat_remaining_names(targets)]
-
-    # Retry any stubborn package individually, capturing its real error.
-    retry_errors: dict[str, str] = {}
-    if still:
-        for name in still:
-            ok, _stdout, stderr = _run_powershell_capture(_debloat_remove_single_script(name))
-            if not ok:
-                retry_errors[name] = stderr or "returncode != 0"
-        still = [n for n in targets if n in _debloat_remaining_names(targets)]
 
     # Final native per-user fallback for whatever is still registered (helps on
     # systems where powershell itself is broken but AppXSVC responds to COM).
@@ -569,7 +582,7 @@ def run_appx_debloat(step: Any) -> dict[str, Any]:
             "requires_admin": step.requires_admin,
         }
 
-    detail_parts = [f"{name}: {err}" for name, err in retry_errors.items()][:3]
+    detail_parts = [f"{name}: {err}" for name, err in list(failed_info.items())[:2]]
     if not detail_parts:
         detail_parts.append("semua penghapusan tidak menghasilkan perubahan.")
     return {

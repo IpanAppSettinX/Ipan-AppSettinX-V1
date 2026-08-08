@@ -3,6 +3,19 @@
 ## Build EXE + Windows custom compatibility
 
 - [x] Debloat Windows (`adv.debloat_windows`, item 22 Advanced Tweak): fix
+  keenam (hardening fix ke-5) — removal kini per-paket tahan-gagal. Pipa
+  `Remove-AppxPackage -AllUsers` lama membatalkan seluruh batch saat paket
+  pertama melempar terminating COMException; sekarang tiap paket dihapus dalam
+  `try`/`catch` sendiri (`-AllUsers` lalu per-user, `-Confirm:$false`), sisa
+  gagal dilaporkan sebagai `FAILED:<name>|<snippet>;;...` untuk detail error.
+  Enumerasi mengecualikan SystemApps (`$_.InstallLocation -notlike
+  "$env:WINDIR\SystemApps\*"` — `Remove-AppxPackage -AllUsers` untuknya melempar
+  0x80070032 "part of Windows") dan `microsoft.windows.peopleexperiencehost`
+  ditambah ke daftar proteksi. Helper test `_parse_names` dibuat non-greedy
+  (regex lama menelan string kutip-tunggal tambahan di script remove → 2 test
+  gagal). Terverifikasi 2026-08-09 (pytest 152 passed, mypy 0, ruff hanya
+  baseline; EXE belum di-rebuild, belum commit/push).
+- [x] Debloat Windows (`adv.debloat_windows`, item 22 Advanced Tweak): fix
   kelima (final) — beralih ke perintah All-Users yang terbukti di mesin user:
   `Get-AppxPackage -AllUsers | ... | Remove-AppxPackage -AllUsers` (wajib
   Administrator; aplikasi requireAdministrator → powershell anak elevated).

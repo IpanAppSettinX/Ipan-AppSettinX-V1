@@ -5,6 +5,57 @@
 > menyelesaikan pekerjaan pada sesi berjalan, agent **wajib memperbarui** file
 > ini (entri terbaru diletakkan paling atas).
 
+## 2026-08-09 (sesi 17) — Debloat Windows (fix ke-6): removal per-paket tahan-gagal + kunci SystemApps, helper test regex diperbaiki
+
+**Status: Selesai.** Meng-hardening fix ke-5. Perintah pipa
+`Get-AppxPackage -AllUsers | ... | Remove-AppxPackage -AllUsers` membatalkan
+SELURUH batch saat paket pertama melempar terminating COMException (mis. app
+sedang dipakai). Sekarang tiap paket dihapus satu-per-satu di dalam
+`try`/`catch`-nya sendiri (`-AllUsers` dulu, lalu per-user), satu kegagalan
+tidak pernah membatalkan paket lain; yang masih gagal dilaporkan sebagai
+`FAILED:<name>|<snippet>;;...` di stdout dan dipakai sebagai detail error
+akhir. Enumerasi juga kini mengecualikan SystemApps
+(`$_.InstallLocation -notlike "$env:WINDIR\SystemApps\*"`), karena
+`Remove-AppxPackage -AllUsers` melempar 0x80070032 "part of Windows" untuknya,
+dan `microsoft.windows.peopleexperiencehost` ditambahkan ke daftar proteksi.
+
+Selama penyelesaian ditemukan bug di helper test `_parse_names` (tests/unit/
+test_runner.py): regex `\$names = @\('(.*)'\)` greedy ikut menelan string
+ber-kutip-tunggal tambahan di script remove yang baru → target tidak ter-parse,
+2 test gagal ("removes_all_matching" & "enumeration_falls_back_to_native").
+Regex diubah non-greedy (`(.*?)'\)`), dan assertion tautologis pada test
+all-protected dirapikan. Lint baru (`RUF059` unused `ok`, format string) yang
+diperkenalkan diff ikut dibersihkan; baseline lint pre-existing (127/128/775,
+tweak_engine 2711/2773/2775) tidak disentuh.
+
+### Perubahan
+- `src/ipan_optimizer/privileged/runner.py`:
+  - `_APPSX_PROTECTED_NAMES` + `microsoft.windows.peopleexperiencehost`
+    (SystemApps tidak bisa di-uninstall; juga mengamankan jalur native fallback).
+  - `_debloat_target_names_script`: filter `InstallLocation -notlike
+    "$env:WINDIR\SystemApps\*"` → SystemApps tidak pernah masuk daftar target.
+  - `_debloat_remove_script` ditulis ulang: per-paket, `$ErrorActionPreference
+    ='Stop'`, `try`/`catch` masing-masing paket, `Remove-AppxPackage -Package
+    <FullName> -AllUsers -Confirm:$false` → retry per-user → `FAILED:` output.
+    `_debloat_remove_single_script` (retry per paket lama) dihapus.
+  - `run_appx_debloat`: parsing `FAILED:` output → `failed_info`; detail error
+    akhir memakai `failed_info` (bukan `retry_errors`).
+- `tests/unit/test_runner.py`: `_parse_names` non-greedy; fake shell paham
+  output `FAILED:`; assertion all-protected dirapikan; assert baru untuk
+  SystemApps di script enumerasi.
+
+### Verifikasi
+- Akar masalah test diverifikasi via repro terpisah: greedy `(.*)` menelan
+  `...$err1 = '; $err2 = ';...` setelah array → parse target salah.
+- Gates: ruff format/check hanya baseline pre-existing (runner 127/128/775,
+  tweak_engine 2711/2773/2775; `src/ipan_optimizer/app/api.py` format debt
+  pre-existing, tidak disentuh); mypy 0 error; **pytest 152 passed,
+  4 deselected** (sebelumnya 2 failed → semua hijau). Control matrix 58,
+  frontend policy, asset budget valid.
+- Belum di-commit/push (menunggu konfirmasi user; EXE belum di-rebuild).
+
+---
+
 ## 2026-08-08 (sesi 16) — Debloat Windows: beralih ke perintah All-Users (Get-AppxPackage -AllUsers | Remove-AppxPackage -AllUsers)
 
 **Status: Selesai.** Setelah riset mendalam (docs Microsoft + probe elevated),
