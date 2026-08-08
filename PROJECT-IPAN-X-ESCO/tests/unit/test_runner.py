@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import sys
+import types
 from datetime import UTC, datetime, timedelta
 
 from ipan_optimizer.privileged import runner
@@ -562,6 +564,48 @@ def test_run_appx_debloat_runtime_missing_reports_error(monkeypatch):
     outcome = runner.run_appx_debloat(_debloat_step())
     assert outcome["success"] is False
     assert ".NET" in outcome["error"]
+
+
+def test_load_appx_package_manager_is_idempotent(monkeypatch):
+    """set_runtime must run only ONCE even if the Debloat tweak is applied
+    many times in one process — the second+ call used to raise
+    "The runtime ... has already been loaded"."""
+    state = {"set_runtime_calls": 0, "runtime": None}
+    pm = object()
+
+    def get_runtime_info():
+        return state["runtime"]
+
+    def set_runtime(rt):
+        state["set_runtime_calls"] += 1
+        state["runtime"] = rt
+
+    class _FakeType:
+        @staticmethod
+        def GetType(*_args):
+            return object()  # not None -> GetTypeFromProgID path is skipped
+
+        @staticmethod
+        def GetTypeFromProgID(*_args):
+            return None
+
+    fake_pythonnet = types.SimpleNamespace(
+        get_runtime_info=get_runtime_info, set_runtime=set_runtime
+    )
+    fake_clr_loader = types.SimpleNamespace(get_netfx=lambda: object())
+    fake_system = types.SimpleNamespace(
+        Activator=type("_A", (), {"CreateInstance": staticmethod(lambda *_: pm)}),
+        Type=_FakeType,
+    )
+    monkeypatch.setitem(sys.modules, "pythonnet", fake_pythonnet)
+    monkeypatch.setitem(sys.modules, "clr_loader", fake_clr_loader)
+    monkeypatch.setitem(sys.modules, "clr", types.SimpleNamespace())
+    monkeypatch.setitem(sys.modules, "System", fake_system)
+
+    assert runner._load_appx_package_manager() is pm
+    assert runner._load_appx_package_manager() is pm
+    assert runner._load_appx_package_manager() is pm
+    assert state["set_runtime_calls"] == 1
 
 
 def test_debloat_step_runs_in_process_without_admin():

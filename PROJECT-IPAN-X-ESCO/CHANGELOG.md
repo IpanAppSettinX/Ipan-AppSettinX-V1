@@ -2,6 +2,14 @@
 
 ## 0.1.0 - Unreleased
 
+- Debloat Windows (`adv.debloat_windows`) third fix: the pythonnet runtime
+  initialisation is now idempotent. The bundled pythonnet raises
+  `RuntimeError: The runtime ... has already been loaded` when `set_runtime()`
+  is called again after `import clr`, so the second Debloat run in the same app
+  process failed with "semua operasi gagal". `set_runtime(get_netfx())` is now
+  only invoked when `get_runtime_info()` is `None`, making repeated applies
+  safe. Verified with a frozen probe (3 consecutive loads succeed, elevated and
+  non-elevated).
 - Debloat Windows (`adv.debloat_windows`) second fix: the tweak no longer goes
   through the UAC/elevated-helper relaunch path (which failed with "semua
   operasi gagal" even when the EXE ran as Administrator on custom Windows).

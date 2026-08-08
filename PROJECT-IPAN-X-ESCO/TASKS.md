@@ -3,6 +3,15 @@
 ## Build EXE + Windows custom compatibility
 
 - [x] Debloat Windows (`adv.debloat_windows`, item 22 Advanced Tweak): fix
+  ketiga — `_load_appx_package_manager()` kini idempotent. pythonnet versi
+  custom di venv melempar `RuntimeError: The runtime ... has already been
+  loaded` bila `set_runtime()` dipanggil lagi setelah CLR di-load `import clr`
+  (proses app hidup lintas klik Apply → pemanggilan ke-2 gagal). Perbaikan:
+  `set_runtime(get_netfx())` hanya dijalankan bila `get_runtime_info() is None`.
+  Terverifikasi 2026-08-08 (frozen probe: 3x load berturut sukses, elevated +
+  non-elevated; pytest 152 passed, mypy 0, EXE 18,120,266 bytes, verify_exe OK,
+  push GitHub).
+- [x] Debloat Windows (`adv.debloat_windows`, item 22 Advanced Tweak): fix
   kedua — step kini `requires_admin=False` sehingga **dijalankan in-process
   langsung**, TIDAK lagi melewati jalur helper elevasi UAC (`_launch_elevated`
   relaunch `--apply-plan`) yang menjadi penyebab "semua operasi gagal" walau EXE

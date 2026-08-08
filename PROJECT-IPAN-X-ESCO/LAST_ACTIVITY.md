@@ -5,6 +5,50 @@
 > menyelesaikan pekerjaan pada sesi berjalan, agent **wajib memperbarui** file
 > ini (entri terbaru diletakkan paling atas).
 
+## 2026-08-08 (sesi 14) — Debloat Windows: fix "runtime has already been loaded" (set_runtime idempotent)
+
+**Status: Selesai.** Setelah sesi 13, user masih melihat "semua operasi gagal"
+tapi kini dengan `Rincian: Runtime .NET untuk AppX tidak tersedia: The runtime
+<clr_loader.netfx.NetFx object> has already been loaded`. Riset mendalam
+menemukan akar masalah sebenarnya: pythonnet versi custom di venv ini membuat
+`set_runtime()` melempar `RuntimeError: The runtime ... has already been loaded`
+begitu CLR sudah di-load oleh `import clr` (kode `_LOADED` di
+`pythonnet/__init__.py`). Proses aplikasi hidup lebih dari satu klik Apply,
+jadi pemanggilan Debloat yang kedua (atau retry) di sesi yang sama memanggil
+`set_runtime(get_netfx())` lagi → error → seluruh step gagal. Perbaikan: init
+runtime dibuat **idempotent** — `set_runtime` hanya dipanggil bila
+`get_runtime_info()` masih `None`. EXE di-rebuild, verify OK, push GitHub.
+
+### Riset (frozen probe non-destruktif, PyInstaller onefile)
+- Sebelum fix: `_load_appx_package_manager()` panggilan kedua selalu
+  `RuntimeError: The runtime ... has already been loaded` (reproduksi dari
+  pesan user).
+- Setelah fix: 3 panggilan berturut-turut di proses yang sama SEMUA sukses,
+  non-elevated DAN elevated (`Start-Process -Verb RunAs`), di dalam
+  daemon-thread; enumerasi 111 paket + fake-removal (HRESULT 0x80073CFA) tetap
+  benar. CLR/COM sama sekali tidak rusak oleh init ulang.
+
+### Perubahan
+- `src/ipan_optimizer/privileged/runner.py` — `_load_appx_package_manager()`:
+  `from pythonnet import get_runtime_info, set_runtime`; hanya panggil
+  `set_runtime(get_netfx())` bila `get_runtime_info() is None`. Docstring
+  menjelaskan kenapa (proses multi-Apply).
+- `tests/unit/test_runner.py` — `test_load_appx_package_manager_is_idempotent`
+  (fake modules pythonnet/clr_loader/clr/System): 3x `_load_appx_package_manager`
+  dan `set_runtime` hanya dipanggil SEKALI.
+
+### Gates (hijau)
+- ruff: hanya 6 pre-existing baseline. mypy: 0 error. pytest: **152 passed,
+  4 deselected** (+1 test idempotensi). Control matrix 58, frontend policy,
+  asset budget (264,545 bytes) valid.
+- Build `.venv` PyInstaller 6.21.0 → `dist/Ipan AppSettinX V1.exe`
+  **18,120,266 bytes**; `verify_exe.py` OK; `dist_new` SHA-256 identik.
+- SHA-256 (dist == dist_new):
+  `126345B0B2FDAC79446D963D9A913C8C11B4E87E3E6CACFA12CE8835CDD5ABEF`.
+- Commit + push ke GitHub; Explorer dibuka ke folder `dist`.
+
+---
+
 ## 2026-08-08 (sesi 13) — Debloat Windows: hapus jalur helper UAC + fallback per-user, EXE push GitHub
 
 **Status: Selesai.** User masih melihat "Debloat Windows: semua operasi gagal"

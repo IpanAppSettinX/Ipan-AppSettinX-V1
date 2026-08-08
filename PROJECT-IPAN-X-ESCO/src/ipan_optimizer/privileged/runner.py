@@ -282,12 +282,20 @@ def _load_appx_package_manager() -> Any:
     pythonnet + the ``netfx`` runtime are already bundled in the release EXE
     (see ``installer/ipan_optimizer.spec``). Raising ``RuntimeError`` here lets
     the caller report a clean, actionable outcome instead of a crash.
+
+    Initialisation is IDEMPOTENT: pythonnet (this build) makes ``set_runtime``
+    raise ``RuntimeError: The runtime ... has already been loaded`` once the
+    CLR was loaded by an earlier ``import clr``. The app process outlives a
+    single Apply (the user can run the tweak many times), so the second Debloat
+    run would crash with that exact error. Guarding ``set_runtime`` with
+    ``get_runtime_info()`` makes every subsequent call a cheap no-op.
     """
     try:
         from clr_loader import get_netfx
-        from pythonnet import set_runtime  # type: ignore[import-untyped]
+        from pythonnet import get_runtime_info, set_runtime  # type: ignore[import-untyped]
 
-        set_runtime(get_netfx())
+        if get_runtime_info() is None:
+            set_runtime(get_netfx())
         # NOTE: the `clr` module is a pythonnet runtime binding with no stubs;
         # it must be imported AFTER set_runtime() (isort:skip keeps it here).
         import clr  # type: ignore[import-untyped]  # noqa: F401,isort:skip
