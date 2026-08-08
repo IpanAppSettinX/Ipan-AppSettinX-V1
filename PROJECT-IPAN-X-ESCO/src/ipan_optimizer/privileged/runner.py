@@ -364,6 +364,22 @@ def _remove_appx_package(package_manager: Any, package_full_name: str) -> tuple[
     return _wait_appx_operation(operation)
 
 
+def _appx_powershell_script(names: list[str]) -> str:
+    """Build the per-user Remove-AppxPackage script for the given names.
+
+    ``Get-AppxPackage -Name`` only accepts a plain ``string`` (a single-element
+    array is rejected with a binding error), so the targets are matched through
+    ``Where-Object { $names -contains $_.Name }`` instead — valid for 1..N.
+    """
+    quoted = ",".join("'" + n.replace("'", "''") + "'" for n in names)
+    return (
+        "$ErrorActionPreference='Continue'; "
+        f"$names = @({quoted}); "
+        "Get-AppxPackage | Where-Object { $names -contains $_.Name } | "
+        "Remove-AppxPackage -ErrorAction SilentlyContinue"
+    )
+
+
 def _remove_appx_packages_powershell(names: list[str]) -> tuple[bool, str]:
     """Fallback: per-user ``Remove-AppxPackage`` (no ``-AllUsers``).
 
@@ -377,12 +393,7 @@ def _remove_appx_packages_powershell(names: list[str]) -> tuple[bool, str]:
     """
     if not names:
         return True, ""
-    quoted = ",".join("'" + n.replace("'", "''") + "'" for n in names)
-    script = (
-        "$ErrorActionPreference='Continue'; "
-        f"Get-AppxPackage -Name @({quoted}) | "
-        "Remove-AppxPackage -ErrorAction SilentlyContinue"
-    )
+    script = _appx_powershell_script(names)
     # Resolve powershell through %WINDIR% (avoids S607 partial-path); fall back
     # to PATH only when the canonical location is missing (e.g. stripped OS).
     powershell_path = os.path.expandvars(r"%WINDIR%\System32\WindowsPowerShell\v1.0\powershell.exe")
@@ -479,41 +490,43 @@ def run_appx_debloat(step: Any) -> dict[str, Any]:
 
     removed = 0
     attempted = 0
-    last_error = ""
-    failed_names: list[str] = []
+    targets: list[str] = []
+    native_failures: list[tuple[str, str]] = []
     for package in candidates:
         name = str(package.Id.Name)
         if _is_protected_package(name):
             continue
         attempted += 1
+        targets.append(name)
         ok, detail = _remove_appx_package(package_manager, str(package.Id.FullName))
         if ok:
             removed += 1
         else:
-            failed_names.append(name)
-            last_error = f"{name}: {detail}"
+            native_failures.append((name, detail))
 
     # Fallback: per-user Remove-AppxPackage (no -AllUsers), mirroring the manual
     # script that works on the user's machine. Covers builds/editions where the
     # native deployment call is rejected while the standard cmdlet succeeds.
+    fallback_error = ""
+    failed_names = [name for name, _ in native_failures]
     if failed_names:
         ok, detail = _remove_appx_packages_powershell(failed_names)
-        if ok:
-            # Count only packages that actually left this user's deployment.
-            remaining = {str(pkg.Id.Name) for pkg in package_manager.FindPackagesForUser(user_sid)}
-            newly_removed = sum(1 for n in failed_names if n not in remaining)
-            removed += newly_removed
-            if newly_removed > 0:
-                last_error = ""
-            else:
-                last_error = f"{'; '.join(failed_names[:3])}: {detail or 'tetap terpasang'}"
-        else:
-            last_error = f"{'; '.join(failed_names[:3])}: {detail}"
+        if not ok:
+            fallback_error = detail
 
-    if removed > 0:
-        note = f"{removed} aplikasi bawaan dihapus." + (
-            f" Gagal sebagian ({last_error})" if last_error else ""
-        )
+    # Ground truth: re-scan what actually remains registered for this user, so
+    # the reported number reflects reality no matter which path removed what.
+    try:
+        remaining = {str(pkg.Id.Name) for pkg in package_manager.FindPackagesForUser(user_sid)}
+    except Exception:
+        remaining = set()
+    still_installed = [name for name in targets if name in remaining]
+    actually_removed = len(targets) - len(still_installed)
+
+    if actually_removed > 0:
+        note = f"{actually_removed} aplikasi bawaan dihapus."
+        if still_installed:
+            note += f" Gagal sebagian: {', '.join(still_installed[:5])}."
         return {
             "description": step.description,
             "success": True,
@@ -528,10 +541,16 @@ def run_appx_debloat(step: Any) -> dict[str, Any]:
             "requires_admin": step.requires_admin,
             "skipped": True,
         }
+    detail_parts = [f"{name}: {detail}" for name, detail in native_failures[:3]]
+    if fallback_error:
+        detail_parts.append(f"fallback: {fallback_error}")
     return {
         "description": step.description,
         "success": False,
-        "error": f"Tidak ada aplikasi yang dapat dihapus. Terakhir: {last_error}",
+        "error": (
+            "Tidak ada aplikasi yang dapat dihapus. "
+            + ("; ".join(detail_parts) if detail_parts else "tanpa rincian.")
+        ),
         "requires_admin": step.requires_admin,
     }
 
@@ -610,11 +629,11 @@ def run_step(step: Any) -> dict[str, Any]:
             "requires_admin": step.requires_admin,
         }
     try:
-        # Special case FIRST: the Debloat Windows tweak runs natively through
+        # Special case FIRST: the Debloat Windows tweak runs in-process through
         # pythonnet -> Windows.Management.Deployment.PackageManager (COM to
-        # AppXSVC). It must never spawn powershell.exe: on stripped Windows a
-        # half-removed powershell hangs the apply job, and a per-user
-        # Remove-AppxPackage -AllUsers is denied without elevation.
+        # AppXSVC), with a per-user Remove-AppxPackage fallback only when the
+        # native call is rejected. This must never go through the UAC/helper
+        # relaunch path or a bare per-user -AllUsers command.
         if step.command and step.command[0] == APPSX_DEBLOAT_STEP_ID:
             return run_appx_debloat(step)
         # Special case: a shell relaunch must never go through CMD or be

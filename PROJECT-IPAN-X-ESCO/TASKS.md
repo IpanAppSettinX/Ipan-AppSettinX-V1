@@ -3,6 +3,15 @@
 ## Build EXE + Windows custom compatibility
 
 - [x] Debloat Windows (`adv.debloat_windows`, item 22 Advanced Tweak): fix
+  keempat — fallback PowerShell diperbaiki dari `Get-AppxPackage -Name @(...)`
+  (gagal binding: `-Name` bertipe String, tolak array) menjadi
+  `Get-AppxPackage | Where-Object { $names -contains $_.Name } |
+  Remove-AppxPackage` (valid 1..N nama, divergen via subprocess langsung).
+  `run_appx_debloat` kini: native → fallback per-user untuk nama gagal →
+  re-scan nyata `FindPackagesForUser` → laporan angka aktual + detail error
+  native+fallback. Terverifikasi 2026-08-08 (pytest 153 passed, mypy 0, EXE
+  18,120,527 bytes, verify_exe OK, push GitHub).
+- [x] Debloat Windows (`adv.debloat_windows`, item 22 Advanced Tweak): fix
   ketiga — `_load_appx_package_manager()` kini idempotent. pythonnet versi
   custom di venv melempar `RuntimeError: The runtime ... has already been
   loaded` bila `set_runtime()` dipanggil lagi setelah CLR di-load `import clr`

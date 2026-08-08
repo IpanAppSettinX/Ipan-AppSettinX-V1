@@ -5,6 +5,52 @@
 > menyelesaikan pekerjaan pada sesi berjalan, agent **wajib memperbarui** file
 > ini (entri terbaru diletakkan paling atas).
 
+## 2026-08-08 (sesi 15) — Debloat Windows: fallback PowerShell diperbaiki (sintaks -Name @() rusak), akuntansi re-scan nyata
+
+**Status: Selesai.** User masih melihat "semua operasi gagal", kali ini dengan
+`Rincian: ... Get-AppxPackage : Cannot convert 'System.Object[]' to the type
+'System.String' required by parameter 'Name'`. Riset menemukan DUA hal:
+1. **Jalur native gagal di semua paket** di mesin user (removed=0) — penyebab
+   pasti tidak terlihat karena pesan tertimpa fallback.
+2. **Fallback PowerShell saya sendiri rusak**: `Get-AppxPackage -Name @('x')`
+   — parameter `-Name` bertipe `String`, menolak array `@(...)` walau satu
+   elemen → binding error → tidak ada yang dihapus. Jadi fallback tidak pernah
+   benar-benar menghapus, persis saat dibutuhkan.
+
+Perbaikan: fallback memakai pola `Get-AppxPackage | Where-Object { $names
+-contains $_.Name } | Remove-AppxPackage` (valid untuk 1..N nama — diverifikasi
+langsung via subprocess, returncode 0, kedua paket terdeteksi). `run_appx_debloat`
+dirombak: native dulu, fallback PowerShell per-user untuk yang gagal native,
+lalu **re-scan nyata** (`FindPackagesForUser` ulang) untuk menghitung berapa
+yang benar-benar hilang; pesan error kini memuat detail native + fallback. EXE
+di-rebuild, verify OK, push GitHub.
+
+### Perubahan
+- `src/ipan_optimizer/privileged/runner.py`:
+  - `_appx_powershell_script(names)` (baru): membangun script per-user via
+    `Where-Object { $names -contains $_.Name }`, bukan `-Name @(...)`.
+  - `run_appx_debloat()`: lacak `targets` (nama non-proteksi); native per paket
+    → kumpulkan `native_failures` (nama+detail); fallback untuk nama yang gagal;
+    re-scan ground-truth → `actually_removed`; sukses bila >0; gagal hanya bila
+    0 terhapus, dengan detail native + fallback.
+- `tests/unit/test_runner.py`: `test_appx_powershell_script_uses_where_object_filter`
+  (tidak memakai `-Name @(`, memakai Where-Object, single & multi name).
+
+### Verifikasi
+- Sintaks fallback baru diverifikasi langsung: `subprocess.run([powershell,
+  -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command script])` →
+  returncode 0, `Microsoft.BingWeather` + `Microsoft.ZuneMusic` terdeteksi
+  (enumeration only, tanpa menghapus).
+- Gates: ruff hanya 6 pre-existing; mypy 0 error; pytest **153 passed,
+  4 deselected** (+1). Control matrix 58, frontend policy, asset budget valid.
+- Build `.venv` PyInstaller 6.21.0 → `dist/Ipan AppSettinX V1.exe`
+  **18,120,527 bytes**; `verify_exe.py` OK; `dist_new` SHA-256 identik.
+- SHA-256 (dist == dist_new):
+  `A7E8672B5A4B191CB488605A0F241C3D2A74F66977CAE2F6F521F06F3550952A`.
+- Commit + push ke GitHub; Explorer dibuka ke folder `dist`.
+
+---
+
 ## 2026-08-08 (sesi 14) — Debloat Windows: fix "runtime has already been loaded" (set_runtime idempotent)
 
 **Status: Selesai.** Setelah sesi 13, user masih melihat "semua operasi gagal"

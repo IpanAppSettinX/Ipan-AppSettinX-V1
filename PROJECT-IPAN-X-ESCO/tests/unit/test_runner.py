@@ -400,6 +400,18 @@ def test_run_step_dispatches_native_debloat(monkeypatch):
     assert called and called[0].command == [runner.APPSX_DEBLOAT_STEP_ID]
 
 
+def test_appx_powershell_script_uses_where_object_filter():
+    """Get-AppxPackage -Name rejects arrays; the fallback must filter via
+    Where-Object so it works for a single name too."""
+    script = runner._appx_powershell_script(["Microsoft.BingWeather"])
+    assert "Get-AppxPackage | Where-Object" in script
+    assert "$names -contains $_.Name" in script
+    assert "-Name @(" not in script
+    assert "Remove-AppxPackage -ErrorAction SilentlyContinue" in script
+    multi = runner._appx_powershell_script(["Microsoft.BingWeather", "Microsoft.ZuneMusic"])
+    assert "Microsoft.ZuneMusic" in multi
+
+
 def test_run_appx_debloat_removes_matching_packages(monkeypatch):
     monkeypatch.setattr("sys.platform", "win32")
     monkeypatch.setattr(runner, "_current_user_sid", lambda: "S-1-5-21-1-2-3-1001")

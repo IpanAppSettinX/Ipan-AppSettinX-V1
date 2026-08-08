@@ -2,6 +2,15 @@
 
 ## 0.1.0 - Unreleased
 
+- Debloat Windows (`adv.debloat_windows`) fourth fix: the PowerShell fallback
+  used `Get-AppxPackage -Name @('x')`, which the `-Name` (String) parameter
+  rejects with a binding error — so the fallback never actually removed
+  anything exactly when it was needed. It now filters via
+  `Get-AppxPackage | Where-Object { $names -contains $_.Name } |
+  Remove-AppxPackage` (verified working for 1..N names). `run_appx_debloat`
+  also re-scans the deployment after both paths and reports the true number of
+  removed packages, with native + fallback error detail when nothing was
+  removed.
 - Debloat Windows (`adv.debloat_windows`) third fix: the pythonnet runtime
   initialisation is now idempotent. The bundled pythonnet raises
   `RuntimeError: The runtime ... has already been loaded` when `set_runtime()`
