@@ -5,6 +5,91 @@
 > menyelesaikan pekerjaan pada sesi berjalan, agent **wajib memperbarui** file
 > ini (entri terbaru diletakkan paling atas).
 
+## 2026-08-08 (sesi 10) — Fix hang 87% + window PowerShell terlihat + UAC batch isolation (Neural AimSync X)
+
+**Status: Selesai.** Tiga akar masalah diperbaiki, EXE di-rebuild (PyInstaller
+6.21), `verify_exe.py` OK, semua gate hijau, pytest **140 passed**.
+
+### Root cause (dikonfirmasi di kode)
+Gejala user di Windows custom (X-Lite/KernelOS/AtlasOS/ReviOS/Ghost Spectre):
+klik Apply "Neural AimSync X" (`aim_stabilizer`) → jendela console PowerShell
+muncul/hang + progress bar macet di ~87%.
+
+1. **Window console terlihat** — `runner.run_step()` memanggil
+   `subprocess.run(shell=False, capture_output=True)` TANPA `creationflags`/
+   `STARTUPINFO`. Men-spawn `powershell.exe`/`cmd.exe` dari proses GUI selalu
+   mem-flash window console.
+2. **Hang** — trio `aim_stabilizer` di `tweak_engine.py`: (a) `powershell
+   -Command Get-Process | % WorkingSet64=0` tanpa `-NoProfile`/`-NonInteractive`
+   (bisa memuat profile user / menunggu prompt pada OS modded); (b) `start
+   explorer.exe` di-wrap `resolve_command()` menjadi `cmd /c start explorer.exe`
+   (console flash + dapat memblokir console host yang setengah-dihapus);
+   (c) bentuk bare `["explorer.exe"]` membuat `subprocess.run` MENUNGGU shell
+   (proses long-running) sampai timeout 10s → salah dilaporkan.
+3. **Batch elevated macet total** — `run_elevated_steps()` menjalankan SEMUA
+   step admin dalam satu list comprehension; satu step hang menghentikan seluruh
+   batch (progress terkunci ~87%).
+
+### Perubahan (`src/ipan_optimizer/privileged/runner.py`)
+- `_hidden_console_kwargs()` (baru): `CREATE_NO_WINDOW` (0x08000000) +
+  `STARTUPINFO.dwFlags|=STARTF_USESHOWWINDOW`, `wShowWindow=SW_HIDE`. Dipakai di
+  `run_step()` dan `_service_exists()` → tidak ada lagi window console.
+- `_is_explorer_relaunch()` + `_relaunch_explorer()` (baru): deteksi kedua
+  spelling (`["start","explorer.exe"]` dan `["explorer.exe"]`) dari command
+  MENTAH (sebelum `resolve_command` menulis ulang `start`), lalu relaunch
+  `explorer.exe` via `subprocess.Popen` **DETACHED_PROCESS |
+  CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW**, stdin/stdout/stderr=DEVNULL,
+  `close_fds=True` — fire-and-forget, tidak pernah ditunggu. Pre-check bila
+  `%WINDIR%\explorer.exe` hilang (OS modded) → skip aman.
+- `_run_step_isolated()` (baru, watchdog daemon-thread, timeout 25s/langkah):
+  satu step hang → dicatat "dilewati", batch lanjut. Dipakai di jalur in-process
+  (`run_elevated_steps` saat EXE sudah elevated) DAN di `execute_plan_file`
+  (jalur self-elevation `--apply-plan`).
+
+### Perubahan (`src/ipan_optimizer/core/tweak_engine.py`)
+- Step Flush RAM `aim_stabilizer`: tambah `-NoProfile -NonInteractive
+  -ExecutionPolicy Bypass` agar PowerShell yang setengah-dihapus tidak hang pada
+  profile/prompt interaktif.
+
+### Test regresi baru (`tests/unit/test_runner.py`, +7 → total 23 di file itu)
+- `_hidden_console_kwargs` menyetel CREATE_NO_WINDOW + SW_HIDE (Windows) dan
+  `{}` di non-Windows; deteksi `_is_explorer_relaunch` kedua spelling;
+  relaunch explorer memakai `Popen` (bukan `subprocess.run`); skip bila binary
+  hilang; `_run_step_isolated` melewati step yang hang; `run_elevated_steps`
+  mengisolasi tiap step in-process.
+
+### Verifikasi (gates hijau)
+- `ruff format`: bersih; `ruff check`: hanya **6 error pre-existing** yang sama
+  persis dengan HEAD (S110/SIM105 tweak_engine, S603/S607 `_service_exists`,
+  SIM102 nested-if) — **0 error baru** dari perubahan ini. Dua temuan sempat
+  muncul saat edit (RUF100 noqa tak terpakai, S607 partial path) sudah dikoreksi.
+- `mypy src`: **0 error** (50 file). `pytest`: **140 passed, 4 deselected**.
+- `check_control_matrix.py` (58 controls), `check_frontend_policy.py`,
+  `check_asset_budget.py` (264,524 bytes) — semua valid.
+
+### Build
+- Insiden build pertama: `PermissionError WinError 5` menimpa EXE lama di
+  `dist/` (Defender sedang scan & mengunci handle). File lama dihapus manual,
+  retry → sukses.
+- **Review diff pra-commit menemukan duplikasi blok `resolve_command` di
+  `run_step()`** (tersisa dari edit; sintaks valid sehingga lolos pytest/mypy/
+  ruff, tetapi kode mati). Duplikat dihapus, EXE di-rebuild ulang agar artefak
+  sesuai kode final. Pelajaran: selalu review `git diff` sebelum commit.
+- `build.py` (`.venv`, PyInstaller **6.21.0**) →
+  `dist/Ipan AppSettinX V1.exe` **18,059,157 bytes**; `verify_exe.py` → **OK**
+  (PE x64, GUI subsystem, `requireAdministrator`). Disalin ke `dist_new/`.
+- SHA-256 (dist == dist_new):
+  `78FF92050B7504D7051F1EB86434C6E7BEF9020549AF38A97342E31ED2E39682`.
+
+### Catatan
+- Smoke test elevated (`--no-window`) hanya berjalan bila UAC disetujui user; di
+  shell non-interaktif dilewati oleh `verify_exe.py` (cek PE+manifest tetap OK).
+- Gates ulang setelah penghapusan duplikat: pytest **140 passed**, mypy **0
+  error**, ruff hanya 3 pre-existing di `runner.py` (S603/S607/SIM102, sama
+  dengan HEAD).
+
+---
+
 ## 2026-08-08 (sesi 9) — Fix spec PyInstaller: collect_all("webview") untuk mencegah FileNotFoundError: Cannot find win-arm64
 
 **Status: Selesai.** Spec PyInstaller diperbarui menjadi production-ready dengan

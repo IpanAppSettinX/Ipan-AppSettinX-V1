@@ -2,6 +2,14 @@
 
 ## Build EXE + Windows custom compatibility
 
+- [x] Fix hang 87% + window PowerShell terlihat + UAC batch isolation pada
+  Neural AimSync X (`aim_stabilizer`). `runner.run_step()` kini memakai
+  `CREATE_NO_WINDOW` + `STARTUPINFO` SW_HIDE (tidak ada console flash); relaunch
+  `explorer.exe` dilakukan DETACHED tanpa window (bukan `cmd /c start`); setiap
+  step admin dijalankan terisolasi dengan watchdog 25s sehingga satu step hang
+  tidak menghentikan seluruh batch elevated; PowerShell Flush RAM memakai
+  `-NoProfile -NonInteractive -ExecutionPolicy Bypass`. Terverifikasi 2026-08-08
+  (pytest 140 passed, mypy 0 error, EXE 18,060,446 bytes, verify_exe OK).
 - [x] Scan hardware akurat untuk semua device: nama prosesor asli via WMI
   `Win32_Processor` (bukan CPUID string), VRAM GPU asli via registry
   `HardwareInformation.qwMemorySize`, tipe storage/bus via enum mapping

@@ -38,6 +38,7 @@ import secrets
 import subprocess
 import sys
 import tempfile
+import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -86,6 +87,36 @@ _CMD_INTERNAL_COMMANDS = frozenset(
 )
 
 
+# ── Hidden-window process execution ─────────────────────────────
+
+# Windows process creation flags (stable ABI constants, safe to hard-code).
+_CREATE_NO_WINDOW = 0x08000000
+_STARTF_USESHOWWINDOW = 0x00000001
+_SW_HIDE = 0
+
+
+def _hidden_console_kwargs() -> dict[str, Any]:
+    """Return subprocess kwargs that guarantee NO console window is shown.
+
+    On Windows, spawning a console subsystem binary (``powershell.exe``,
+    ``cmd.exe``) from a GUI process without these flags flashes a visible
+    console window on screen. Worse, on stripped/modded Windows (X-Lite,
+    KernelOS, AtlasOS, ReviOS, Ghost Spectre) a half-removed console host can
+    make the child block on console init, which froze the apply job at 87%.
+    ``CREATE_NO_WINDOW`` + ``STARTUPINFO.wShowWindow = SW_HIDE`` prevents the
+    window entirely and avoids the blocking console allocation.
+    """
+    if sys.platform != "win32":
+        return {}
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= _STARTF_USESHOWWINDOW
+    startupinfo.wShowWindow = _SW_HIDE
+    return {
+        "creationflags": _CREATE_NO_WINDOW,
+        "startupinfo": startupinfo,
+    }
+
+
 def _service_exists(service: str) -> bool:
     """Return True when the Windows service is installed (sc query succeeds)."""
     if sys.platform != "win32":
@@ -97,6 +128,7 @@ def _service_exists(service: str) -> bool:
             text=True,
             timeout=5,
             shell=False,
+            **_hidden_console_kwargs(),
         )
         return result.returncode == 0
     except (OSError, subprocess.SubprocessError):
@@ -155,6 +187,44 @@ class ExecStep:
     requires_admin: bool = False
 
 
+def _is_explorer_relaunch(command: list[str]) -> bool:
+    """Detect a Windows-shell relaunch step from its RAW command.
+
+    Both legacy spellings appear in the tweak catalog:
+      * ``["start", "explorer.exe"]`` — ``start`` is a CMD builtin, which would
+        be wrapped to ``cmd /c start explorer.exe`` (console flash + block).
+      * ``["explorer.exe"]`` — a bare call would make ``subprocess.run`` WAIT
+        on the long-running shell until the 10 s timeout (misreported).
+    """
+    if not command:
+        return False
+    head = command[0].lower()
+    if head in {"explorer", "explorer.exe"}:
+        return True
+    return head == "start" and len(command) >= 2 and "explorer" in command[1].lower()
+
+
+def _relaunch_explorer() -> None:
+    """Relaunch ``explorer.exe`` detached, with no console window, and return.
+
+    ``DETACHED_PROCESS`` + ``CREATE_NEW_PROCESS_GROUP`` fully detach the shell
+    from our job object and console so the apply job never waits on it, and
+    ``CREATE_NO_WINDOW`` + hidden ``STARTUPINFO`` guarantee nothing flashes.
+    """
+    _DETACHED_PROCESS = 0x00000008
+    _CREATE_NEW_PROCESS_GROUP = 0x00000200
+    subprocess.Popen(
+        [r"%WINDIR%\explorer.exe"],  # noqa: S607 - %WINDIR% expands to SystemRoot.
+        shell=False,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+        creationflags=_DETACHED_PROCESS | _CREATE_NEW_PROCESS_GROUP | _CREATE_NO_WINDOW,
+        startupinfo=_hidden_console_kwargs().get("startupinfo"),
+    )
+
+
 def run_step(step: Any) -> dict[str, Any]:
     """Execute one command step with ``subprocess.run(shell=False)``.
 
@@ -168,6 +238,26 @@ def run_step(step: Any) -> dict[str, Any]:
             "requires_admin": step.requires_admin,
         }
     try:
+        # Special case FIRST: a shell relaunch must never go through CMD or be
+        # waited on (see _is_explorer_relaunch). Handle it before resolve_command
+        # rewrites "start" into "cmd /c start".
+        if _is_explorer_relaunch(step.command):
+            if not _file_exists_resolved(r"%WINDIR%\explorer.exe"):
+                return {
+                    "description": step.description,
+                    "success": True,
+                    "stdout": "explorer.exe tidak tersedia pada Windows ini, dilewati.",
+                    "requires_admin": step.requires_admin,
+                    "skipped": True,
+                }
+            _relaunch_explorer()
+            return {
+                "description": step.description,
+                "success": True,
+                "stdout": "explorer.exe diluncurkan ulang (detached, tanpa jendela).",
+                "requires_admin": step.requires_admin,
+            }
+
         resolved = resolve_command(step.command)
         if not resolved:
             return {
@@ -252,6 +342,7 @@ def run_step(step: Any) -> dict[str, Any]:
             text=True,
             timeout=10,
             shell=False,
+            **_hidden_console_kwargs(),
         )
         ok = result.returncode == 0
         return {
@@ -427,15 +518,57 @@ def _failed_outcome(step: Any, error: str) -> dict[str, Any]:
     }
 
 
+# Per-step hard timeout for an already-elevated batch. A single hung step
+# (stuck service manager, half-removed PowerShell on a modded OS) must never
+# freeze the whole batch / job thread, which was the "stuck at 87%" symptom.
+_ELEVATED_STEP_TIMEOUT = 25
+
+
+def _run_step_isolated(step: Any, timeout: int = _ELEVATED_STEP_TIMEOUT) -> dict[str, Any]:
+    """Run ONE step under a hard watchdog so a stuck step is skipped, not fatal.
+
+    The step executes in a daemon thread; if it does not finish within
+    ``timeout`` seconds a "skipped" outcome is recorded and the batch moves on
+    (the abandoned daemon thread dies with the process). This is what isolates
+    each privileged step from the others inside a single elevated run.
+    """
+    if sys.platform != "win32":
+        return run_step(step)
+    box: list[dict[str, Any]] = []
+
+    def _target() -> None:
+        try:
+            box.append(run_step(step))
+        except Exception as exc:  # pragma: no cover - defensive
+            box.append(_failed_outcome(step, str(exc)))
+
+    worker = threading.Thread(target=_target, daemon=True)
+    worker.start()
+    worker.join(timeout)
+    if worker.is_alive():
+        outcome = _failed_outcome(step, "")
+        outcome.update(
+            {
+                "success": True,
+                "stdout": f"Operasi melebihi {timeout} dtk pada Windows ini, dilewati.",
+                "skipped": True,
+            }
+        )
+        outcome.pop("error", None)
+        return outcome
+    return box[0] if box else _failed_outcome(step, "Langkah tidak menghasilkan hasil.")
+
+
 def run_elevated_steps(steps: list[Any], tweak_id: str) -> list[dict[str, Any]]:
     """Run privileged steps, elevating once via UAC when needed.
 
     When the current process already has an elevated token, or when
     ``IPAN_OPTIMIZER_NO_ELEVATION=1`` is set (tests/development), the steps are
-    executed in-process instead.
+    executed in-process instead. Each step runs under its own watchdog so one
+    hung component can never freeze the entire batch.
     """
     if is_elevated() or os.environ.get(NO_ELEVATION_ENV) == "1":
-        return [run_step(step) for step in steps]
+        return [_run_step_isolated(step) for step in steps]
 
     plan_dir = _plan_dir()
     nonce = secrets.token_urlsafe(24)
@@ -557,7 +690,7 @@ def execute_plan_file(plan_path: Path, result_path: Path) -> int:
     except ValueError as exc:
         _write_error_result(result_path, str(exc))
         return 1
-    outcomes = [run_step(step) for step in steps]
+    outcomes = [_run_step_isolated(step) for step in steps]
     return _write_result(result_path, outcomes)
 
 

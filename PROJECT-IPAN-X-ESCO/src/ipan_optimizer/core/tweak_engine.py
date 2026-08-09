@@ -1446,15 +1446,24 @@ GAMING_TWEAK_COMMANDS: dict[str, list[TweakStep]] = {
             "0",
             hive="HKCU",
         ),
-        # Flush RAM (AMD.bat)
+        # Flush RAM (AMD.bat). -NoProfile/-NonInteractive/-ExecutionPolicy Bypass
+        # keep a half-removed PowerShell (X-Lite/KernelOS) from hanging on a
+        # user profile load or an interactive prompt; the runner adds
+        # CREATE_NO_WINDOW so no console ever flashes.
         _run(
             [
                 "powershell",
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
                 "-Command",
                 "Get-Process | ForEach-Object { $_.WorkingSet64 = 0 }",
             ]
         ),
-        # Restart Explorer (AMD.bat)
+        # Restart Explorer (AMD.bat). taskkill is fire-and-forget; the runner
+        # relaunches explorer.exe DETACHED with no window instead of `cmd /c
+        # start`, which used to flash a console and block the job at ~87%.
         _run(["taskkill", "/f", "/im", "explorer.exe"]),
         _run(["start", "explorer.exe"]),
     ],
