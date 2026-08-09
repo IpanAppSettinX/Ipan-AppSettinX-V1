@@ -115,11 +115,16 @@ python scripts/check_asset_budget.py
   AppSensiX) is then applied directly with the elevated token — HKLM registry,
   service config, powercfg, bcdedit all actually take effect. There is no
   per-tweak UAC and no "Run as administrator is forbidden" guard.
-- **Never run the release EXE "as administrator".** The app is `asInvoker`
-  and elevates on demand. Running it elevated breaks the WebView2 host and
-  surfaces "minimum supported platform is Windows..." errors. `main.py`
-  detects elevation and relaunches without elevation
-  (`_is_elevated` / `_relaunch_without_elevation`).
+- **JANGAN build memakai `.venv-build` (PyInstaller 6.16.0).** Bootloader
+  6.16 menghasilkan header `TimeDateStamp=0` (1970) + `CheckSum=0` yang
+  memicu "this app can't run on your PC" / "minimum supported platform is
+  Windows..." (apphelp) di Win10 Pro original maupun X-Lite, dan menaikkan
+  false-positive antivirus/mediafire. Hanya PyInstaller **6.21.0** (`.venv`)
+  yang men-patch header. `build.py` sudah dikoreksi memilih `.venv` dulu dan
+  kini GAGAL (SystemExit) bila `verify_exe.py` menolak artefak (header 1970).
+  Khusus `requireAdministrator`: EXE rilis memang wajib elevated (lihat di
+  atas); verifikasi elevated smoke test `--no-window` hanya berjalan bila UAC
+  disetujui.
 - The host occasionally kills process startups (the `0xa462` crash). When an
   EXE fails to start, retry; check the app log at
   `%LOCALAPPDATA%\IPAN Optimizer\logs\ipan-optimizer.jsonl`.

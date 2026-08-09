@@ -46,7 +46,12 @@ def _pyinstaller_works(python: Path) -> bool:
 def _find_interpreter() -> Path:
     """Pilih interpreter build secara dinamis (tanpa hardcode drive letter)."""
     candidates: list[Path] = []
-    for venv_name in (".venv-build", ".venv"):
+    # Urutan sengaja: .venv (PyInstaller 6.21) lebih dulu daripada .venv-build
+    # (PyInstaller 6.16). 6.16 menghasilkan bootloader dengan TimeDateStamp=0
+    # (1970) + CheckSum=0 -> memicu "this app can't run on your PC" /
+    # "minimum supported platform" di Windows original maupun X-Lite, dan
+    # menaikkan false-positive antivirus. 6.21 men-patch header tersebut.
+    for venv_name in (".venv", ".venv-build"):
         candidates.append(ROOT / venv_name / "Scripts" / "python.exe")
     # Interpreter yang sedang menjalankan script ini (bisa venv aktif atau
     # instalasi global di drive mana pun).
@@ -106,9 +111,14 @@ def _verify(python: Path, exe: Path) -> None:
     print(f"      Ukuran EXE: {exe.stat().st_size} bytes")
     verify_script = ROOT / "scripts" / "verify_exe.py"
     if verify_script.is_file():
-        subprocess.run(  # noqa: S603 - script verifikasi milik proyek sendiri
+        result = subprocess.run(  # noqa: S603 - script verifikasi milik proyek sendiri
             [str(python), str(verify_script), str(exe)], cwd=ROOT
         )
+        if result.returncode != 0:
+            raise SystemExit(
+                "[ERROR] EXE GAGAL verifikasi (lihat daftar problem di atas). "
+                "Jangan distribusikan artefak ini."
+            )
 
 
 def _open_explorer(folder: Path) -> None:

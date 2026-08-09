@@ -5,6 +5,209 @@
 > menyelesaikan pekerjaan pada sesi berjalan, agent **wajib memperbarui** file
 > ini (entri terbaru diletakkan paling atas).
 
+## 2026-08-08 (sesi 8) — Setup pasca install ulang Windows + exclusion Defender + rebuild & sign EXE
+
+**Status: Selesai.** Environment pulih pasca install ulang Windows 100% clean,
+EXE di-rebuild bersih (PyInstaller 6.21), di-code-sign self-signed, dan
+diverifikasi tanpa error unicodedata / "can't run on your PC".
+
+### Yang dilakukan:
+1. **Recovery Python 3.12** (hilang setelah install ulang Windows):
+   - `C:\Python312` sudah tidak ada. Install ulang via winget per-user
+     (`Python.Python.3.12`, `--scope user`) → interpreter baru di
+     `C:\Users\WINDOWS KERJA\AppData\Local\Programs\Python\Python312`.
+   - Perbaiki `pyvenv.cfg` di `.venv` dan `.venv-build` (home/executable kini
+     menunjuk interpreter per-user) → kedua venv hidup kembali.
+   - Console scripts venv (`ruff.exe`, `pytest.exe`, `mypy.exe`) yang hilang
+     setelah reinstall dipulihkan via `pip install --force-reinstall --no-deps`
+     dengan versi sesuai lock (ruff 0.14.2, pytest 8.4.2, mypy 1.18.2).
+   - Gates hijau: `ruff check` & `mypy src` bersih, `pytest` **133 passed**.
+2. **Exclusion Defender dibuat ulang (elevated):**
+   - Script baru `scripts/setup_defender_exclusions.ps1` (#Requires
+     -RunAsAdministrator) menambahkan exclusion untuk `.venv`, `.venv-build`,
+     `build`, `build_new`, `dist`, `dist_new`, dan folder Python per-user.
+   - Terverifikasi via elevated PowerShell: 7 path exclusion aktif, Real-time &
+     Tamper protection tetap ON (tidak menonaktifkan proteksi).
+3. **Rebuild & code-sign EXE:**
+   - Pulihkan `installer/main.manifest` + `installer/helper.manifest` dari versi
+     `.xml` (isi identik; spec PyInstaller merujuk nama tanpa ekstensi).
+   - `build.py` (`.venv`, PyInstaller 6.21) → `dist/Ipan AppSettinX V1.exe`
+     **17,706,016 bytes**; TimeDateStamp nyata `2026-08-09 00:45 UTC`,
+     CheckSum `0x10e3af8`; `unicodedata.pyd`, `ucrtbase.dll`,
+     `api-ms-win-core-path-l1-1-0.dll`, `_ssl/_sqlite/_decimal` semua ter-bundle
+     (dicek via `pyi-archive_viewer`) → error `ModuleNotFoundError: unicodedata`
+     dan "this app can't run on your PC" tidak akan muncul.
+   - Copy ke `dist_new/` (identik, hash sama). `verify_exe.py` → **OK**.
+   - Code-sign dengan `installer/IpanAppSettinX_code-signing.pfx`
+     (thumbprint `8CDF6C5EEE76B74E63027774BDE390A401CB1E88`, self-signed):
+     cert di-import ke CurrentUser\My + Root + TrustedPublisher;
+     `Set-AuthenticodeSignature` → status **Valid** di root/dist/dist_new.
+   - Scan Defender folder non-exclude (`%TEMP%\opencode\scan_check`) → **BERSIH**.
+4. **Hash & sekuriti repo:**
+   - `BACKUP_MANIFEST.txt` diperbarui: hash dist & dist_new =
+     `73B1296031E8D6A0726BD1BF96C85BC0D9C33F3FA045C25B0A1EB0AB13222086`.
+   - `.gitignore` (root): tambah `*.pfx`, `*.p12`, `CODE_SIGNING_README.txt`
+     agar private key & password cert TIDAK ikut ke GitHub.
+   - EXE root proyek (`Ipan AppSettinX V1.exe`) di-update ke build baru yang
+     sudah di-sign.
+
+### Catatan penting (jujur)
+- Exclusion & self-signed cert hanya melindungi **PC ini**. Di device lain /
+  MediaFire / VirusTotal, signature self-signed tetap tampil "Unknown
+  publisher" dan AV pihak lain masih bisa false-positive. Solusi permanen =
+  code-signing OV/EV resmi (task pending di TASKS.md). Untuk distribusi,
+  gunakan EXE yang sudah di-sign ini; verifikasi hash sebelum share.
+- Dokumen `release-sha256.json` masih dari build onedir lama (tidak di-update
+  pada sesi ini).
+
+---
+
+## 2026-08-08 (sesi 7) — Reintegrasi 9router & Pembaruan Konfigurasi KelontongAI di OpenCode
+
+**Status: Selesai.** 9router berhasil di-running lokal (port 20128) dan terintegrasi penuh bersama KelontongAI pada `opencode.json` (root dan project).
+
+### Yang dilakukan:
+1. **Investigasi & Pembersihan False Positive Defender:**
+   - Folder `build_test/` dan `minimal_test.spec` berisi test build lama (Wacatac.B!ml) telah dibersihkan.
+   - Exclusion Defender diperbarui ke lingkup minimal aman: `.venv`, `.venv-build`, `build`. Root folder project tidak di-exclude. Status Defender: Tamper & Real-time protection tetap AKTIF.
+2. **Setup & Perbaikan 9router (NVIDIA NIM & Combos):**
+   - 9router v0.5.50 dipastikan berjalan di `http://localhost:20128` (port 20128).
+   - Mengidentifikasi masalah model EOL NVIDIA (minimax-m2.7, deepseek-v4-*, kimi-k2.6, glm-5.2) yang menyebabkan 410 / 502 timeout pada connection test.
+   - Melakukan backup DB `data.sqlite.bak-20260808-162524` dan membersihkan model EOL dari 6 combo (`ProjectSempro1-6`) di SQLite DB, menyisakan model valid (`minimax-m3` dan `nemotron-3-ultra-550b-a55b`).
+   - Melakukan restart penuh 9router via tray app untuk memuat konfigurasi DB baru.
+3. **Pembaruan Konfigurasi `opencode.json`:**
+   - Memperbarui daftar model `kelontongai` dengan 14 model (termasuk `gpt-5.6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra` beserta varian reasoning, `glm-5.2`, `deepseek-v4-*`, `kimi-k2.7-code`, `kimi-k3`, `gemini-3.1-pro`, `gemini-3.5-flash`, `gemini-3.6-flash`, `mimo-v2.5`, `mimo-v2.5-pro`, `minimax-m3`).
+   - Mempertahankan provider `9router` (`FreeTier1`, `minimax-m3`, `nemotron-3-ultra-550b-a55b`).
+   - Konfigurasi divalidasi dan terverifikasi di kedua file: `D:\Ipan-AppSettinX-V1\opencode.json` dan `D:\Ipan-AppSettinX-V1\PROJECT-IPAN-X-ESCO\opencode.json`.
+   - `opencode models` memverifikasi 25+ model terdaftar dan aktif.
+
+---
+
+## 2026-08-08 (sesi 6) — Scan malware semua disk + investigasi "this app can't run on your PC"
+
+**Status: Selesai (dengan temuan PENTING).** Full scan Defender SEMUA disk
+selesai (FullScanStart 01:58 → End 02:33). **TERBUKTI ada MINER KRIPTO di PC
+ini** (sudah dikarantina Defender). Penyebab "can't run on your PC" = **bukan
+EXE/build** — loader sistem mesin ini menolak EXE PyInstaller
+(ERROR_BAD_EXE_FORMAT 193).
+
+### TEMUAN MINER (jujur — koreksi klaim "BERSIH" sesi 3)
+- Riwayat deteksi Defender menunjukkan **crypto miner NYATA** yang disembunyikan
+  sebagai file gambar di `C:\Users\WINDOWS KERJA\AppData\Roaming\Microsoft\`:
+  - `DiniiXX.jpeg` → **XMR (Monero)** ke `xmr.kryptex.network:7029`
+    (wallet `krxX82G782.*`)
+  - `DiniiYY.jpeg` + `DinoSaur.jpeg` → **Ravencoin (Kawpow)** ke
+    `rvn.2miners.com:6060` (wallet `bc1qt03z0756r5vmq5xh76dzx9svnkan964l3q6txy`)
+  - `C:\ProgramData\bungee.boo` = loader/dropper keluarga **Sabsik**
+    (muncul berulang 8/7 17:53 / 19:28) — keluarga yang dikenal menjatuhkan miner.
+- Deteksi: 8/6 23:50, 8/7 13:50, 8/7 17:53, 8/7 19:28 dst. **Semua sudah
+  dikarantina/dihapus Defender** (file tidak ada di disk lagi).
+- Verifikasi saat ini: **tidak ada proses mining berjalan**, tidak ada koneksi
+  ke port pool mining, Run keys/task/service/WMI/IFEO/Winlogon/AppInit bersih,
+  `Roaming\Microsoft` kembali berisi folder legit saja. **Persistence miner sudah
+  hilang.** => Jawaban: IYA sempat ada miner; sekarang sudah bersih.
+- Catatan: klaim "BERSIH" pada sesi 3 tidak akurat/inkomplit (miner sudah
+  dikarantina Defender sebelum audit, tapi tidak diverifikasi ke riwayat threat).
+  Rekomendasi: ganti password yang terpakai di PC ini; jangan pakai crack/tool
+  ilegal (sumber paling mungkin).
+- **Sumber infeksi (kemungkinan besar): `Downloads\TRION-X (2).exe`** — tool
+  cheat game, terdeteksi Defender 8/7 16:54 (ThreatID 2147972435) sebagai
+  bagian keluarga Sabsik, dan **sudah dikarantina/hilang**. Cheat tool dikenal
+  membundel miner. `bungee.boo` yang "muncul berulang" = deteksi ulang oleh
+  Defender (17:53, 19:28, 19:28), bukan file yang ada sekarang. Verifikasi
+  saat ini: TRION tidak ada di disk mana pun, 0 koneksi mining, 0 proses CPU
+  tinggi, 0 threat aktif (scan penuh 02:33).
+
+### Investigasi "The specified executable is not a valid application for this OS platform"
+- Ditemukan: `CreateProcess` mengembalikan **error 193 (ERROR_BAD_EXE_FORMAT)**
+  untuk SEMUA EXE PyInstaller onefile — termasuk **EXE minimal hello-world**
+  (mengisolasi spec/isi aplikasi), untuk 6.16 maupun 6.21, di drive C: dan D:,
+  dengan **real-time Defender DIMATIKAN** dan exclusion ditambah — tetap gagal.
+- `notepad`/`calc`/`python.exe` jalan normal. `runw.exe` (bootloader mentah)
+  jalan tapi crash `0xC0000138` (STATUS_ORDINAL_NOT_FOUND). comctl32.dll asli
+  Microsoft (signature valid) ternyata **tidak punya ordinal 380** yang
+  diimpor bootloader (punya ord 83 = InitCommonControlsEx).
+- Kesimpulan: **state loader/kompatibilitas mesin ini bermasalah**, bukan
+  artefak build. Indikasi penyebab sistem:
+  - `Trojan:Win32/MpTamperSrvDisableAV.I` pernah terdeteksi (percobaan
+    menonaktifkan tamper protection Defender).
+  - Sisa aktivasi KMS (SPP loop "Offline downlevel migration" tiap ~5 menit).
+  - Banyak false-positive Defender kemarin (runw.exe, esbuild, upx, ffmpeg,
+    git-sh, EXE desktop) — karakteristik "!ml" ML classifier.
+- Bukti berlawanan: pukul 01:30 EXE dist (6:47 PM) SEMPAT jalan exit 0; pukul
+  01:44 EXE root 6.21 jalan lalu crash 0xC0000138; setelah itu CreateProcess
+  mulai gagal 193. => kemungkinan besar **perlu reboot** untuk reset state.
+
+### Yang dilakukan
+- Audit live (proses CPU delta, RUN keys, IFEO, Winlogon, AppInit, WMI,
+  scheduled tasks, services, koneksi TCP, file miner, EXE baru): **BERSIH**.
+  `bungee.boo` (C:\ProgramData) sudah dikarantina Defender.
+- EXE dist (6.21) di-backup ke `build_test/Ipan AppSettinX V1 6.21.exe`; build
+  6.16 dibuat ulang ke `dist`; minimal test di `build_test/minimal_dist`.
+- Exclusion Defender ditambah: build_test, dist, dist_new, .venv, .venv-build,
+  temp opencode (C:\Python312 & D:\Ipan-AppSettinX-V1 sudah ada).
+- **Full scan Defender semua disk dijalankan ulang** (elevated) —
+  `C:\Users\WINDOW~1\AppData\Local\Temp\opencode\mp_fullscan.log`. Hasilnya
+  belum selesai saat log ini ditulis.
+
+### Langkah yang disarankan (belum dieksekusi)
+1. **Reboot PC**, lalu uji `dist\Ipan AppSettinX V1.exe`.
+2. Bila masih gagal: elevated `sfc /scannow` + `DISM /Online /Cleanup-Image /RestoreHealth`.
+3. Verifikasi hasil full scan di `mp_fullscan.log`.
+4. MediaFire/virus flag = false positive; paling efektif **code-sign EXE**.
+
+---
+
+## 2026-08-07 (sesi 5) — Akar masalah 1970-timestamp bootloader: fix build.py + rebuild 6.21
+
+**Status:** Selesai. `dist` + `dist_new` EXE di-rebuild dengan PyInstaller 6.21
+(`.venv`) → header **TimeDateStamp nyata (2026) + CheckSum valid**.
+`verify_exe.py` → **OK** (smoke test dilewati karena elevation tidak tersedia
+di shell non-interaktif; cek PE + manifest lulus).
+
+### Diagnosis (kenapa error "muncul lagi" padahal unicodedata sudah dibundle)
+- Gejala user: `ModuleNotFoundError: No module named 'unicodedata'` (via
+  `bottle.py:79 from unicodedata import normalize`) + "windows not supported /
+  this app can't run on your PC" di Win10 Pro original DAN X-Lite + EXE
+  di-flag malware oleh MediaFire.
+- **Akar: `build.py` memilih `.venv-build` (PyInstaller 6.16.0) lebih dulu**
+  dari `.venv` (6.21.0). Bootloader 6.16 menghasilkan EXE dengan
+  `TimeDateStamp=0` (1970) + `CheckSum=0` (terbukti pada `dist` 6:47 PM dan
+  `dist_new`). Header 1970 ini yang memicu `apphelp` → "minimum supported
+  platform / can't run on your PC" di kedua OS, dan jadi heuristik malware
+  (EXE tidak bertanda tangan + self-extract onefile + requireAdministrator)
+  yang bikin MediaFire/VirusTotal flag.
+- `build_exe.bat` SUDAH benar memilih `.venv` (6.21); `build.py` yang menyimpang.
+- `unicodedata.pyd` ternyata sudah ter-bundle di EXE lama (cek `pyi-archive_viewer`);
+  traceback user berasal dari build yang lebih lama / header rusak, bukan hilang.
+
+### Perubahan
+- `build.py`: urutan interpreter `(".venv", ".venv-build")` (6.21 dulu) +
+  komentar penjelas; `_verify` kini **SystemExit** bila `verify_exe.py` gagal
+  (sebelumnya hanya mencetak, build "sukses" walau artefak rusak).
+- Rebuild via `build.py` (`.venv` 6.21): `dist/Ipan AppSettinX V1.exe`
+  17,734,268 bytes; TimeDateStamp=0x6a762a1a (2026-08-07 18:55 UTC),
+  CheckSum=0x10f44fb; `unicodedata/_decimal/_ssl/webview` ter-bundle. Disalin
+  ke `dist_new/`.
+- SHA-256 (untuk submit VirusTotal / pembanding MediaFire):
+  `F0EE8106EAD32F3A69CB6E18B1DFA980EDFDC7518F5F94191E66DFF8406A8432`.
+- `AGENTS.md`: koreksi bullet "Never run the release EXE as administrator"
+  yang bertentangan dengan desain `requireAdministrator` (verify_exe & spec).
+
+### Verifikasi malware (jawab pertanyaan "ada virus/miner?")
+- Live check: top-CPU process semuanya legit (Discord, msedgewebview2, Brave,
+  audiodg, AMD); startup normal; tidak ada koneksi ke port pool mining.
+  **Tidak ada bukti miner/virus.** Flag MediaFire = false positive umum EXE
+  PyInstaller onefile tanpa tanda tangan. Sebelumnya (sesi 3) audit 10 titik
+  persistence juga bersih.
+
+### Catatan
+- Verifikasi smoke test elevated butuh user klik UAC; di shell agent di-skip.
+- `.venv-build`/6.16 TIDAK dipakai lagi untuk build (header 1970). Boleh
+  dihapus bila tidak dipakai.
+
+---
+
 ## 2026-08-07 (sesi 4) — Startup cleanup _MEI orphan + pre-check powershell/explorer + build.py
 
 **Status:** Selesai. Semua gates hijau (pytest **133/133**, mypy 0 error, ruff

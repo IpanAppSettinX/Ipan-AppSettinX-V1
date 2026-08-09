@@ -4,6 +4,9 @@ opencode.json
 .env.*
 *.pem
 *.key
+*.pfx
+*.p12
+CODE_SIGNING_README.txt
 
 # Python
 .venv/
