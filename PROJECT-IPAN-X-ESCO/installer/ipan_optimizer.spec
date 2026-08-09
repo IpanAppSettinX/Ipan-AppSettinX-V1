@@ -1,9 +1,18 @@
 # -*- mode: python ; coding: utf-8 -*-
+"""Production-ready PyInstaller spec untuk Ipan AppSettinX V1.
+
+Menggunakan ``collect_all("webview")`` secara eksplisit untuk menjamin semua
+native runtime DLL WebView2 (``win-arm64``, ``win-x64``, ``win-x86``),
+interop DLL, dan submodul Python pywebview ter-bundle — tidak bergantung
+pada hook contrib yang mungkin berubah antar versi PyInstaller.
+"""
 import os
 import platform as _platform
 import subprocess
 import sys
 from pathlib import Path
+
+from PyInstaller.utils.hooks import collect_all
 
 ROOT = Path(SPECPATH).parent
 SRC = ROOT / "src"
@@ -25,6 +34,29 @@ datas = [
 binaries = []
 if bootstrapper.is_file():
     binaries.append((str(bootstrapper), "ipan_optimizer/data"))
+
+# ── collect_all("webview") ──────────────────────────────────────
+# Menangkap SEMUA: data files (DLL WebView2 di webview/lib/), dynamic libs,
+# dan submodul Python pywebview. Ini mencegah FileNotFoundError: Cannot
+# find win-arm64 yang terjadi ketika native runtime folders tidak ter-bundle.
+# Hook contrib stdhooks/hook-webview.py hanya memakai collect_data_files +
+# collect_dynamic_libs; collect_all lebih lengkap karena juga menangkap
+# hidden imports (webview.guilib, webview.platforms.winforms, dll.).
+_wv_datas, _wv_binaries, _wv_hiddenimports = collect_all("webview")
+datas += _wv_datas
+binaries += _wv_binaries
+
+# ── collect pythonnet (clr) native deps ─────────────────────────
+# pythonnet (clr_loader) memuat runtime .NET secara dinamis; pastikan
+# assembly dan data ter-bundle.
+_pn_datas, _pn_binaries, _pn_hidden = collect_all("clr_loader")
+datas += _pn_datas
+binaries += _pn_binaries
+
+# ── collect psutil binary ───────────────────────────────────────
+_ps_datas, _ps_binaries, _ps_hidden = collect_all("psutil")
+datas += _ps_datas
+binaries += _ps_binaries
 
 # Bundle the Universal C Runtime (UCRT) so the app runs on machines without
 # the Visual C++ Redistributable installed. python312.dll depends on
@@ -64,8 +96,17 @@ analysis = Analysis(
     binaries=binaries,
     datas=datas,
     hiddenimports=[
+        # pywebview — semua platform backends agar import_winforms /
+        # try_import tidak gagal di runtime.
         "webview.platforms.edgechromium",
+        "webview.platforms.winforms",
+        "webview.platforms.win32",
+        "webview.guilib",
+        "webview.util",
+        # pythonnet / .NET interop
         "clr",
+        "clr_loader",
+        # pywin32 (PDH counters untuk telemetry, COM, dll.)
         "win32api",
         "win32con",
         "win32com",
@@ -74,11 +115,10 @@ analysis = Analysis(
         "win32timezone",
         "win32pdh",
         "win32pdhutil",
-        # C-extension stdlib modules that PyInstaller's modulegraph can miss
-        # when a stale/corrupted build cache is reused. ``unicodedata`` is the
-        # one that crashed the release EXE on the modded test OS with
-        # "ModuleNotFoundError: No module named 'unicodedata'". Listing them
-        # here forces them to be bundled from C:\\Python312\\DLLs.
+        # C-extension stdlib modules yang PyInstaller modulegraph bisa lewatkan
+        # ketika build cache stale/corrupted. ``unicodedata`` adalah modul yang
+        # pernah crash EXE rilis pada OS modded dengan
+        # "ModuleNotFoundError: No module named 'unicodedata'".
         "unicodedata",
         "_decimal",
         "_bz2",
@@ -92,7 +132,7 @@ analysis = Analysis(
         "pyexpat",
         "select",
         "zlib",
-    ],
+    ] + _wv_hiddenimports + _pn_hidden + _ps_hidden,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

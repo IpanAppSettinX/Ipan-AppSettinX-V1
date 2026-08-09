@@ -5,6 +5,79 @@
 > menyelesaikan pekerjaan pada sesi berjalan, agent **wajib memperbarui** file
 > ini (entri terbaru diletakkan paling atas).
 
+## 2026-08-08 (sesi 9) — Fix spec PyInstaller: collect_all("webview") untuk mencegah FileNotFoundError: Cannot find win-arm64
+
+**Status: Selesai.** Spec PyInstaller diperbarui menjadi production-ready dengan
+`collect_all("webview")` eksplisit, rebuild berhasil, verifikasi OK, semua gate hijau.
+
+### Yang dilakukan:
+1. **Root cause analysis `FileNotFoundError: Cannot find win-arm64`:**
+   - Traceback menunjukkan `webview/util.py:517 interop_dll_path` gagal menemukan
+     folder `win-arm64` di `sys._MEIPASS`.
+   - Spec lama (`installer/ipan_optimizer.spec`) hanya memasukkan `frontend` dan
+     `data` di `datas`, dengan `hookspath=[]` dan tanpa `collect_all("webview")`.
+   - Hook contrib `stdhooks/hook-webview.py` (pyinstaller-hooks-contrib 2026.6)
+     sebenarnya sudah menangkap DLL via `collect_data_files` + `collect_dynamic_libs`,
+     sehingga build sesi 8 sudah berisi DLL webview — tetapi ini **rentan** karena
+     bergantung pada hook contrib yang bisa berubah/berperilaku berbeda.
+2. **Perbaikan `installer/ipan_optimizer.spec` (production-ready):**
+   - Tambah `from PyInstaller.utils.hooks import collect_all`.
+   - `collect_all("webview")` → menangkap SEMUA: data files (DLL WebView2 di
+     `webview/lib/`), dynamic libs, dan submodul Python pywebview (guilib,
+     platforms.winforms, platforms.edgechromium, util, dll.).
+   - `collect_all("clr_loader")` → menangkap native DLL pythonnet (ClrLoader.dll).
+   - `collect_all("psutil")` → menangkap binary psutil.
+   - Hidden imports diperluas: `webview.platforms.winforms`, `webview.platforms.win32`,
+     `webview.guilib`, `webview.util`, `clr_loader`.
+   - Pertahankan UCRT bundling (`ucrtbase.dll`, `api-ms-win-crt-*.dll`) dan
+     forwarder `api-ms-win-core-path-l1-1-0.dll` untuk Windows modded.
+3. **Rebuild & verifikasi:**
+   - `.venv\Scripts\python.exe build.py` → EXE **18,055,213 bytes** (naik ~350KB
+     dari 17,706,016 karena collect_all menambahkan dist-info + submodul).
+   - `verify_exe.py` → **OK** (PE x64, GUI subsystem, requireAdministrator, smoke
+     test `--no-window` exit 0).
+   - Verifikasi isi arsip: `win-arm64/WebView2Loader.dll`, `win-x64`, `win-x86`,
+     `Microsoft.Web.WebView2.Core.dll`, `Microsoft.Web.WebView2.WinForms.dll`,
+     `WebBrowserInterop.x64/x86.dll`, `webview/guilib.py`, `webview/platforms/winforms.py`
+     SEMUA ter-bundle.
+4. **Gate hijau:**
+   - `ruff check` & `ruff format --check` (spec file: hanya false-positive
+     PyInstaller globals SPECPATH/Analysis/PYZ/EXE — bukan error nyata).
+   - `mypy src` → Success: no issues found in 50 source files.
+   - `pytest` → **133 passed, 4 deselected**.
+   - `check_control_matrix.py` → 58 canonical controls valid.
+   - `check_frontend_policy.py` → valid.
+   - `check_asset_budget.py` → total 264,524 bytes (HTML+CSS+JS+images).
+
+### Audit menyeluruh (semua tombol Apply Tweak):
+- **Tweak Menu** (5 item): `system.apply_regedit`, `cleanup.clean_temp_files`,
+  `system.apply_booster`, `recovery.revert_all_changes`, `cleanup.clean_log_files`
+  → semua punya definisi `TweakStep` di `tweak_engine.py`, dijalankan via
+  `execute_tweak()` dengan watchdog timeout + toleransi modded Windows.
+- **Advanced Tweaks** (30 item): `adv.clean_all` s/d `adv.reduce_latency`
+  → semua terdefinisi di `ADVANCED_TWEAK_COMMANDS`, binding UI di `app.js` via
+  `handleAdvancedAction` → `invoke("apply_advanced_tweak")`.
+- **Gaming Profiles** (4 item): `aim_smooth`, `aim_stabilizer`, `easy_drag`,
+  `boost_fps_menu` → terdefinisi di `GAMING_TWEAK_COMMANDS`, binding via
+  `gaming.aim_smooth` dll.
+- **Emulator**: `emulator.bluestacks5`, `emulator.msi_app_player` → terdefinisi
+  di `EMULATOR_TWEAK_COMMANDS`, `emulator.discover` → `EmulatorDiscovery`.
+- **System Fixes**: `fixes.camera`, `fixes.obs_screenshot` → terdefinisi di
+  `FIXES_TWEAK_COMMANDS`, binding via `fixes.camera`/`fixes.obs`.
+- **Telemetry**: `get_realtime_stats` → `read_telemetry()` dengan PDH counters
+  (CPU/GPU/disk/network), MAHM shared memory, nvidia-smi, psutil; polling 2.5s
+  via `setInterval` dengan guard `document.hidden` dan canvas coalescing.
+- **Transaction flow**: `preview_transaction` → `start_apply_transaction` →
+  poll `get_job_status` → `keep`/`rollback` dengan snapshot + verify + journal.
+
+### Catatan:
+- Spec lama (`ipan_optimizer.spec.bak`) dipertahankan sebagai referensi.
+- Build lama (sesi 8) sebenarnya sudah berisi DLL webview berkat hook contrib,
+  tetapi spec baru membuat bundling **eksplisit dan robust** — tidak bergantung
+  pada hook contrib yang mungkin diubah/dihapus di versi PyInstaller mendatang.
+
+---
+
 ## 2026-08-08 (sesi 8) — Setup pasca install ulang Windows + exclusion Defender + rebuild & sign EXE
 
 **Status: Selesai.** Environment pulih pasca install ulang Windows 100% clean,
