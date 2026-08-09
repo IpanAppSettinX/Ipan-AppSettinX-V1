@@ -2,6 +2,13 @@
 
 ## Build EXE + Windows custom compatibility
 
+- [x] Hapus step Restart Explorer (`taskkill /f /im explorer.exe` + relaunch)
+  dari Neural AimSync X (`aim_stabilizer`) atas permintaan user — kill/restart
+  shell dianggap mengganggu dan tweak tetap berfungsi tanpanya. Step lain
+  (termasuk Flush RAM PowerShell) dipertahankan; step explorer pada tweak lain
+  yang memang membutuhkannya tidak disentuh. Jumlah step aim_stabilizer 38 → 36.
+  Terverifikasi 2026-08-08 (pytest 140 passed, mypy 0 error, EXE 18,060,399
+  bytes, verify_exe OK).
 - [x] Fix hang 87% + window PowerShell terlihat + UAC batch isolation pada
   Neural AimSync X (`aim_stabilizer`). `runner.run_step()` kini memakai
   `CREATE_NO_WINDOW` + `STARTUPINFO` SW_HIDE (tidak ada console flash); relaunch

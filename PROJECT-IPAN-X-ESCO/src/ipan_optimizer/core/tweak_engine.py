@@ -1461,11 +1461,11 @@ GAMING_TWEAK_COMMANDS: dict[str, list[TweakStep]] = {
                 "Get-Process | ForEach-Object { $_.WorkingSet64 = 0 }",
             ]
         ),
-        # Restart Explorer (AMD.bat). taskkill is fire-and-forget; the runner
-        # relaunches explorer.exe DETACHED with no window instead of `cmd /c
-        # start`, which used to flash a console and block the job at ~87%.
-        _run(["taskkill", "/f", "/im", "explorer.exe"]),
-        _run(["start", "explorer.exe"]),
+        # NOTE: the "Restart Explorer" pair (taskkill /f /im explorer.exe +
+        # relaunch) was REMOVED from Neural AimSync X at the user's request —
+        # killing the shell is disruptive (taskbar/desktop vanish) and the
+        # tweak works without it. Other tweaks that legitimately need a shell
+        # restart keep their own explorer steps untouched.
     ],
     # DragShot Velocity X: INVI XD SENSI.bat + regedit_sensi.reg
     "easy_drag": [

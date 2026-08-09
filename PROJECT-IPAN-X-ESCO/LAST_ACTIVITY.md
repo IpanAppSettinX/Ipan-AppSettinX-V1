@@ -5,6 +5,30 @@
 > menyelesaikan pekerjaan pada sesi berjalan, agent **wajib memperbarui** file
 > ini (entri terbaru diletakkan paling atas).
 
+## 2026-08-08 (sesi 11) — Hapus step Restart Explorer dari Neural AimSync X (permintaan user)
+
+**Status: Selesai.** Duo `taskkill /f /im explorer.exe` + relaunch explorer
+dihapus dari `aim_stabilizer` saja; step lain (termasuk Flush RAM PowerShell)
+dipertahankan. EXE di-rebuild, verify OK, semua gate hijau.
+
+### Yang dilakukan
+- User melaporkan hasil apply "Neural AimSync X" sukses (`VERIFIED`, 34
+  berhasil / 4 gagal) tetapi meminta penghapusan proses kill/restart shell
+  karena dianggap mengganggu (taskbar/desktop hilang sesaat).
+- `tweak_engine.py` blok `aim_stabilizer`: hapus `_run(["taskkill", "/f",
+  "/im", "explorer.exe"])` dan `_run(["start", "explorer.exe"])`. Jumlah step
+  `aim_stabilizer` turun 38 → **36**; terverifikasi 0 step explorer / 0 taskkill
+  di tweak ini. Step Restart Explorer pada tweak LAIN (mis. `fixes.*` /
+  `adv.clean_all` yang memang butuh shell restart) TIDAK disentuh.
+- Gates: ruff format bersih; ruff check hanya 3 pre-existing (S110/SIM105, sama
+  dgn HEAD); mypy **0 error**; pytest **140 passed**.
+- Build: `build.py` (PyInstaller 6.21) → `dist/Ipan AppSettinX V1.exe`
+  **18,060,399 bytes**; `verify_exe.py` OK; copy ke `dist_new/` (hash identik).
+- SHA-256 (dist == dist_new):
+  `47670ECC067C66BD7A1F4DA976309610F03D496A52DE7189FD547B455FE5FB4E`.
+
+---
+
 ## 2026-08-08 (sesi 10) — Fix hang 87% + window PowerShell terlihat + UAC batch isolation (Neural AimSync X)
 
 **Status: Selesai.** Tiga akar masalah diperbaiki, EXE di-rebuild (PyInstaller
